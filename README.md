@@ -4,6 +4,7 @@
 
 Professional-grade, open-source React Gantt library built with strict TypeScript and modern performance optimizations.
 
+🌐 **Documentation & Demo:** [https://ganttcraft.fr](https://ganttcraft.fr)
 ## Installation
 
 ```bash

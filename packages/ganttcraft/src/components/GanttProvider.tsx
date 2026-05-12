@@ -40,6 +40,9 @@ interface GanttContextValue {
   calendar: WorkingCalendar;
   addDependency: (sourceId: string, targetId: string) => void;
   deleteTask: (taskId: string) => void;
+  visibleTasks: GanttTask[];
+  toggleGroup: (taskId: string) => void;
+  collapsedGroupIds: Set<string>;
 }
 
 const GanttContext = createContext<GanttContextValue | undefined>(undefined);
@@ -99,6 +102,7 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(400);
   const [viewportWidth, setViewportWidth] = useState(800);
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(new Set());
   const rootRef = useRef<HTMLDivElement>(null);
 
   const historyManager = useMemo(() => new HistoryManager(), []);
@@ -143,10 +147,46 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
 
   const pixelsPerMs = useMemo(() => viewModeToPixelsPerMs(viewMode), [viewMode]);
 
+  const visibleTasks = useMemo(() => {
+    // A task is hidden if any of its ancestors are in collapsedGroupIds
+    const hiddenMap = new Map<string, boolean>();
+    
+    // Memoize the hidden state of each node
+    const isHidden = (taskId: string): boolean => {
+      if (hiddenMap.has(taskId)) return hiddenMap.get(taskId)!;
+      const task = internalTasks.find(t => t.id === taskId);
+      if (!task || !task.parentId) {
+        hiddenMap.set(taskId, false);
+        return false;
+      }
+      if (collapsedGroupIds.has(task.parentId)) {
+        hiddenMap.set(taskId, true);
+        return true;
+      }
+      const hidden = isHidden(task.parentId);
+      hiddenMap.set(taskId, hidden);
+      return hidden;
+    };
+
+    return internalTasks.filter(t => !isHidden(t.id));
+  }, [internalTasks, collapsedGroupIds]);
+
   const virtualWindow = useMemo(
-    () => computeVirtualWindow(scrollTop, viewportHeight, ROW_HEIGHT, internalTasks.length),
-    [scrollTop, viewportHeight, internalTasks.length]
+    () => computeVirtualWindow(scrollTop, viewportHeight, ROW_HEIGHT, visibleTasks.length),
+    [scrollTop, viewportHeight, visibleTasks.length]
   );
+
+  const toggleGroup = useCallback((taskId: string) => {
+    setCollapsedGroupIds(prev => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  }, []);
 
   const updateTask = useCallback(
     (updatedTask: GanttTask) => {
@@ -369,6 +409,9 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
       calendar,
       addDependency,
       deleteTask,
+      visibleTasks,
+      toggleGroup,
+      collapsedGroupIds,
     }),
     [
       internalTasks,
@@ -397,6 +440,9 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
       calendar,
       addDependency,
       deleteTask,
+      visibleTasks,
+      toggleGroup,
+      collapsedGroupIds,
     ]
   );
 

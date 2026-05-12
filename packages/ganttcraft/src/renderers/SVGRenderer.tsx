@@ -8,7 +8,7 @@ import { DependencyLayer } from './DependencyLayer';
 
 export const SVGRenderer: React.FC = () => {
   const {
-    tasks,
+    visibleTasks,
     startDate,
     endDate,
     updateTask,
@@ -43,17 +43,17 @@ export const SVGRenderer: React.FC = () => {
   };
 
   const layoutTasks = useMemo(() => {
-    return tasks.map((task, idx) => {
+    return visibleTasks.map((task, idx) => {
       const source = draggingTask && draggingTask.id === task.id ? draggingTask : task;
       return calculateTaskLayout(source, idx, startDate, pixelsPerMs);
     });
-  }, [tasks, draggingTask, startDate, pixelsPerMs]);
+  }, [visibleTasks, draggingTask, startDate, pixelsPerMs]);
 
   const startMs = startDate.getTime();
   const endMs = endDate.getTime();
   const totalMs = endMs - startMs + MS_PER_DAY * 7;
   const width = Math.max(totalMs * pixelsPerMs, 800);
-  const height = Math.max(tasks.length * ROW_HEIGHT, 400);
+  const height = Math.max(visibleTasks.length * ROW_HEIGHT, 400);
 
   // Only render rows inside the virtual window
   const { startIndex, endIndex, offsetY } = virtualWindow;
@@ -65,7 +65,7 @@ export const SVGRenderer: React.FC = () => {
   });
 
   // Grid lines — also virtualized to visible rows only
-  const visibleGridLines = tasks
+  const visibleGridLines = visibleTasks
     .slice(startIndex, endIndex + 1)
     .map((_, i) => startIndex + i);
 

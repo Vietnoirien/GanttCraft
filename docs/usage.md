@@ -29,6 +29,7 @@ const tasks: GanttTask[] = [
     start: new Date('2026-05-01T00:00:00Z'),
     end: new Date('2026-05-15T00:00:00Z'),
     progress: 50,
+    type: 'group'
   },
   {
     id: 'task-2',
@@ -37,6 +38,7 @@ const tasks: GanttTask[] = [
     end: new Date('2026-05-05T00:00:00Z'),
     progress: 100,
     parentId: 'task-1', // Creates a hierarchy
+    type: 'task'
   }
 ];
 

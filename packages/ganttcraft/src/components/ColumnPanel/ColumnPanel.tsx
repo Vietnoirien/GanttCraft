@@ -1,9 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useGanttContext } from '../GanttProvider';
 import { ROW_HEIGHT } from '../../engine/layout';
 
 export const ColumnPanel: React.FC = () => {
-  const { tasks, columns, showResourcePanel } = useGanttContext();
+  const { tasks, visibleTasks, columns, showResourcePanel, toggleGroup, collapsedGroupIds } = useGanttContext();
 
   const uniqueResources = useMemo(() => {
     if (!showResourcePanel) return [];
@@ -13,6 +13,12 @@ export const ColumnPanel: React.FC = () => {
     });
     return Array.from(res);
   }, [tasks, showResourcePanel]);
+
+  const getDepth = useCallback((taskId: string): number => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || !task.parentId) return 0;
+    return 1 + getDepth(task.parentId);
+  }, [tasks]);
 
   return (
     <div className="gantt-column-panel" style={{ borderRight: '1px solid var(--gantt-border, #e2e8f0)', backgroundColor: 'white', minWidth: 250, maxWidth: 400 }}>
@@ -44,9 +50,9 @@ export const ColumnPanel: React.FC = () => {
           </tr>
         </thead>
         <tbody>
-          {tasks.map((task) => (
+          {visibleTasks.map((task) => (
             <tr key={task.id} style={{ height: ROW_HEIGHT }}>
-              {columns.map((col) => (
+              {columns.map((col, colIndex) => (
                 <td key={col.id} style={{ 
                   padding: '0 12px', 
                   borderBottom: '1px solid var(--gantt-border, #e2e8f0)', 
@@ -58,8 +64,25 @@ export const ColumnPanel: React.FC = () => {
                   fontSize: '0.875rem',
                   color: 'var(--gantt-text-primary, #1a202c)'
                 }}>
-                  {/* Use renderCell when provided, fall back to accessor */}
-                  {col.renderCell ? col.renderCell(task) : col.accessor(task)}
+                  {colIndex === 0 ? (
+                    <div style={{ paddingLeft: getDepth(task.id) * 16, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {task.type === 'group' ? (
+                        <button 
+                          onClick={() => toggleGroup(task.id)} 
+                          style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0, fontSize: '10px', color: '#718096', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14 }}
+                        >
+                          {collapsedGroupIds.has(task.id) ? '▶' : '▼'}
+                        </button>
+                      ) : (
+                        <span style={{ width: 14 }} />
+                      )}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {col.renderCell ? col.renderCell(task) : col.accessor(task)}
+                      </span>
+                    </div>
+                  ) : (
+                    col.renderCell ? col.renderCell(task) : col.accessor(task)
+                  )}
                 </td>
               ))}
             </tr>

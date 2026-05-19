@@ -1,7 +1,7 @@
 import { render, fireEvent, act } from '@testing-library/react';
 import { SVGRenderer } from './SVGRenderer';
 import { GanttProvider } from '../components/GanttProvider';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { GanttTask } from '../types';
 
 
@@ -130,6 +130,74 @@ describe('SVGRenderer', () => {
     
     // Task 1 should be deleted
     expect(updatedTasks.length).toBe(0);
+  });
+  it('task text uses var(--gantt-task-text) not hardcoded white (T2.3)', () => {
+    const tasks: GanttTask[] = [
+      { id: '1', name: 'Task Alpha', start: new Date('2024-01-01'), end: new Date('2024-01-10') },
+    ];
+    const { container } = render(
+      <GanttProvider tasks={tasks} columns={[]}>
+        <SVGRenderer />
+      </GanttProvider>
+    );
+    // Task label text is a <text> element inside the SVG task group
+    const textEl = Array.from(container.querySelectorAll('text')).find(
+      (el) => el.textContent === 'Task Alpha'
+    );
+    expect(textEl).not.toBeUndefined();
+    expect(textEl!.getAttribute('fill')).toBe('var(--gantt-task-text, #ffffff)');
+  });
+});
+
+describe('SVGRenderer slug navigation', () => {
+  it('shows "Navigate" context menu item when task has a slug (T1.5)', () => {
+    const tasks: GanttTask[] = [
+      { id: '1', name: 'Slug Task', start: new Date('2024-01-01'), end: new Date('2024-01-10'), slug: '/tasks/slug-task' },
+    ];
+    const { container, queryByRole, getByText, queryByText } = render(
+      <GanttProvider tasks={tasks} columns={[]}>
+        <SVGRenderer />
+      </GanttProvider>
+    );
+    const taskGroup = container.querySelector('[role="row"]')!;
+    expect(queryByRole('menu')).toBeNull();
+
+    act(() => { fireEvent.contextMenu(taskGroup); });
+
+    expect(queryByRole('menu')).not.toBeNull();
+    expect(queryByText('Navigate')).not.toBeNull();
+    // Sanity: Delete still present
+    expect(getByText('Delete Task')).not.toBeNull();
+  });
+
+  it('does NOT show Navigate when task has no slug (T1.5)', () => {
+    const tasks: GanttTask[] = [
+      { id: '2', name: 'No Slug', start: new Date('2024-01-01'), end: new Date('2024-01-10') },
+    ];
+    const { container, queryByRole, queryByText } = render(
+      <GanttProvider tasks={tasks} columns={[]}>
+        <SVGRenderer />
+      </GanttProvider>
+    );
+    act(() => { fireEvent.contextMenu(container.querySelector('[role="row"]')!); });
+    expect(queryByRole('menu')).not.toBeNull();
+    expect(queryByText('Navigate')).toBeNull();
+  });
+
+  it('calls onTaskNavigate with the full task when Navigate clicked (T1.5)', () => {
+    const tasks: GanttTask[] = [
+      { id: '3', name: 'Nav Task', start: new Date('2024-01-01'), end: new Date('2024-01-10'), slug: '/tasks/nav-task' },
+    ];
+    const onNavigate = vi.fn();
+    const { container, getByText } = render(
+      <GanttProvider tasks={tasks} columns={[]} onTaskNavigate={onNavigate}>
+        <SVGRenderer />
+      </GanttProvider>
+    );
+    act(() => { fireEvent.contextMenu(container.querySelector('[role="row"]')!); });
+    act(() => { fireEvent.click(getByText('Navigate')); });
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(onNavigate).toHaveBeenCalledWith(expect.objectContaining({ id: '3', slug: '/tasks/nav-task' }));
   });
 });
 

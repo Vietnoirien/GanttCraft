@@ -19,4 +19,5 @@ export const defaultTheme: GanttTheme = {
   '--gantt-weekend':          'rgba(0,0,0,0.03)',
   '--gantt-today-line':       '#4f46e5',
   '--gantt-focus-ring':       '#4f46e5',
+  '--gantt-task-text':        '#ffffff',
 };

@@ -43,6 +43,8 @@ interface GanttContextValue {
   visibleTasks: GanttTask[];
   toggleGroup: (taskId: string) => void;
   collapsedGroupIds: Set<string>;
+  /** Called when the user clicks "Navigate" on a task with a slug. */
+  onTaskNavigate?: (task: GanttTask) => void;
 }
 
 const GanttContext = createContext<GanttContextValue | undefined>(undefined);
@@ -74,6 +76,8 @@ export interface GanttProviderProps {
   /** When true, enables global Ctrl+Z / Cmd+Z keyboard shortcuts for undo/redo. Default: true. */
   undoRedoEnabled?: boolean;
   headless?: boolean;
+  /** Called when the user clicks "Navigate" on a task with a slug. Receives the full GanttTask object. */
+  onTaskNavigate?: (task: GanttTask) => void;
   children: React.ReactNode;
 }
 
@@ -94,6 +98,7 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
   calendar = AllDayCalendar,
   undoRedoEnabled = true,
   headless,
+  onTaskNavigate,
   children,
 }) => {
   const [internalTasks, setInternalTasks] = useState<GanttTask[]>(externalTasks);
@@ -412,6 +417,7 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
       visibleTasks,
       toggleGroup,
       collapsedGroupIds,
+      onTaskNavigate,
     }),
     [
       internalTasks,
@@ -443,6 +449,7 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
       visibleTasks,
       toggleGroup,
       collapsedGroupIds,
+      onTaskNavigate,
     ]
   );
 

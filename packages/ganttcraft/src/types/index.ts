@@ -88,6 +88,11 @@ export interface GanttTask {
   constraint?: TaskConstraint;
   /** The date used by `constraint` (required for MSO and SNET modes). Ignored when `constraint` is ASAP or ALAP. */
   constraintDate?: Date;
+  /**
+   * Optional URL slug or path for this task. When set, a "Navigate" option appears in
+   * the context menu. `onTaskNavigate` callback is invoked when the user clicks it.
+   */
+  slug?: string;
   /** Index signature enabling custom data fields for use with custom column `accessor` functions. */
   [key: string]: any;
 }

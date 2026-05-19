@@ -31,7 +31,7 @@ export const GanttBody: React.FC = () => {
       }}
     >
       {/* Left column panel — sticky to the left edge */}
-      <div style={{ position: 'sticky', left: 0, zIndex: 20, flexShrink: 0, backgroundColor: 'white' }}>
+      <div style={{ position: 'sticky', left: 0, zIndex: 20, flexShrink: 0, backgroundColor: 'var(--gantt-bg, #ffffff)' }}>
         <ColumnPanel />
       </div>
 

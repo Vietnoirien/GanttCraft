@@ -21,7 +21,7 @@ export const ColumnPanel: React.FC = () => {
   }, [tasks]);
 
   return (
-    <div className="gantt-column-panel" style={{ borderRight: '1px solid var(--gantt-border, #e2e8f0)', backgroundColor: 'white', minWidth: 250, maxWidth: 400 }}>
+    <div className="gantt-column-panel" style={{ borderRight: '1px solid var(--gantt-border, #e2e8f0)', backgroundColor: 'var(--gantt-bg, #ffffff)', minWidth: 250, maxWidth: 400 }}>
       <table style={{ borderCollapse: 'collapse', width: 'max-content', tableLayout: 'fixed' }}>
         <thead>
           <tr>
@@ -90,7 +90,7 @@ export const ColumnPanel: React.FC = () => {
         </tbody>
       </table>
       {showResourcePanel && (
-        <div style={{ height: Math.max(uniqueResources.length * 50, 150), position: 'relative', borderTop: '2px solid var(--gantt-border, #eee)', backgroundColor: 'white' }}>
+        <div style={{ height: Math.max(uniqueResources.length * 50, 150), position: 'relative', borderTop: '2px solid var(--gantt-border, #eee)', backgroundColor: 'var(--gantt-bg, #ffffff)' }}>
           {uniqueResources.map((resId, rIdx) => (
             <div 
               key={`label-${resId}`}

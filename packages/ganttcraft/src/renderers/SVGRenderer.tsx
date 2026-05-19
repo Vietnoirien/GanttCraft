@@ -22,6 +22,7 @@ export const SVGRenderer: React.FC = () => {
     deleteTask,
     showCriticalPath,
     conflicts,
+    onTaskNavigate,
   } = useGanttContext();
 
   const { draggingTask, handleMouseDown, setLinkTargetId, linkState } = useTaskDrag({
@@ -282,7 +283,7 @@ export const SVGRenderer: React.FC = () => {
                       onMouseEnter={() => setLinkTargetId(t.id)}
                       onMouseLeave={() => setLinkTargetId(null)}
                     />
-                    <text x={t.x + 8} y={localY + ROW_HEIGHT / 2 + 4} fill="white" fontSize="12" pointerEvents="none">
+                    <text x={t.x + 8} y={localY + ROW_HEIGHT / 2 + 4} fill="var(--gantt-task-text, #ffffff)" fontSize="12" pointerEvents="none">
                       {t.name}
                     </text>
                     {taskConflicts && taskConflicts.length > 0 && (
@@ -296,39 +297,53 @@ export const SVGRenderer: React.FC = () => {
         </svg>
       </div>
 
-      {contextMenuState && (
-        <ContextMenu
-          x={contextMenuState.x}
-          y={contextMenuState.y}
-          onClose={() => setContextMenuState(null)}
-          items={[
-            {
-              id: 'edit',
-              label: i18n.strings.editTask || 'Edit Task',
-              onClick: () => {
-                // Future integration point for an edit dialog
-                console.log(`Edit task ${contextMenuState.taskId}`);
+      {contextMenuState && (() => {
+        const targetTask = visibleTasks.find(t => t.id === contextMenuState.taskId);
+        return (
+          <ContextMenu
+            x={contextMenuState.x}
+            y={contextMenuState.y}
+            onClose={() => setContextMenuState(null)}
+            items={[
+              {
+                id: 'edit',
+                label: i18n.strings.editTask || 'Edit Task',
+                onClick: () => {
+                  // Future integration point for an edit dialog
+                  console.log(`Edit task ${contextMenuState.taskId}`);
+                }
+              },
+              ...(!contextMenuState.isGroup ? [{
+                id: 'add-dependency',
+                label: 'Add Dependency', // Can be i18n'd later
+                onClick: () => {
+                  // Future integration for a manual dependency dialog
+                  console.log(`Add dependency to ${contextMenuState.taskId}`);
+                }
+              }] : []),
+              ...(targetTask?.slug ? [{
+                id: 'navigate',
+                label: 'Navigate',
+                onClick: () => {
+                  if (onTaskNavigate && targetTask) {
+                    onTaskNavigate(targetTask);
+                  } else if (targetTask?.slug) {
+                    window.location.href = targetTask.slug;
+                  }
+                }
+              }] : []),
+              {
+                id: 'delete',
+                label: i18n.strings.deleteTask || 'Delete Task',
+                variant: 'danger',
+                onClick: () => {
+                  deleteTask(contextMenuState.taskId);
+                }
               }
-            },
-            ...(!contextMenuState.isGroup ? [{
-              id: 'add-dependency',
-              label: 'Add Dependency', // Can be i18n'd later
-              onClick: () => {
-                // Future integration for a manual dependency dialog
-                console.log(`Add dependency to ${contextMenuState.taskId}`);
-              }
-            }] : []),
-            {
-              id: 'delete',
-              label: i18n.strings.deleteTask || 'Delete Task',
-              variant: 'danger',
-              onClick: () => {
-                deleteTask(contextMenuState.taskId);
-              }
-            }
-          ]}
-        />
-      )}
+            ]}
+          />
+        );
+      })()}
     </div>
   );
 };

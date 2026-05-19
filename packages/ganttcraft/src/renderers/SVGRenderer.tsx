@@ -25,7 +25,7 @@ export const SVGRenderer: React.FC = () => {
     onTaskNavigate,
   } = useGanttContext();
 
-  const { draggingTask, handleMouseDown, setLinkTargetId, linkState } = useTaskDrag({
+  const { draggingTask, handleMouseDown, setLinkTargetId, linkState, linkTargetId } = useTaskDrag({
     onTaskUpdate: updateTask,
     onLinkCreate: addDependency,
   });
@@ -156,6 +156,7 @@ export const SVGRenderer: React.FC = () => {
                     tabIndex={0}
                     role="row"
                     aria-label={ariaLabel}
+                    data-task-id={t.id}
                   >
                     <polygon
                       points={`${cx},${cy - size} ${cx + size},${cy} ${cx},${cy + size} ${cx - size},${cy}`}
@@ -184,6 +185,7 @@ export const SVGRenderer: React.FC = () => {
                     aria-label={ariaLabel}
                     onContextMenu={(e) => handleContextMenu(e, t.id, true)}
                     style={{ outline: 'none' }}
+                    data-task-id={t.id}
                   >
                     <path
                       d={`M ${t.x} ${cy + 6} L ${t.x} ${cy - 4} L ${t.x + t.width} ${cy - 4} L ${t.x + t.width} ${cy + 6} L ${t.x + t.width - 4} ${cy} L ${t.x + 4} ${cy} Z`}
@@ -224,6 +226,7 @@ export const SVGRenderer: React.FC = () => {
                     tabIndex={0}
                     role="row"
                     aria-label={ariaLabel}
+                    data-task-id={t.id}
                   >
                     <rect
                       x={t.x}
@@ -279,7 +282,8 @@ export const SVGRenderer: React.FC = () => {
                       y={localY}
                       width={12}
                       height={ROW_HEIGHT}
-                      fill="transparent"
+                      fill={linkTargetId === t.id ? "rgba(59, 130, 246, 0.3)" : "transparent"}
+                      data-task-id={t.id}
                       onMouseEnter={() => setLinkTargetId(t.id)}
                       onMouseLeave={() => setLinkTargetId(null)}
                     />

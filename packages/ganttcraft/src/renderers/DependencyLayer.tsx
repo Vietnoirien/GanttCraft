@@ -19,7 +19,8 @@ export interface DependencyLayerProps {
 }
 
 export const DependencyLayer: React.FC<DependencyLayerProps> = ({ linkState }) => {
-  const { tasks, startDate, showCriticalPath, pixelsPerMs } = useGanttContext();
+  const { tasks, startDate, showCriticalPath, pixelsPerMs, virtualWindow } = useGanttContext();
+  const { offsetY } = virtualWindow;
 
   const layoutTasksMap = useMemo(() => {
     const map = new Map<string, LayoutTask>();
@@ -92,7 +93,7 @@ export const DependencyLayer: React.FC<DependencyLayerProps> = ({ linkState }) =
             x1={startX}
             y1={startY}
             x2={linkState.cursorX}
-            y2={linkState.cursorY}
+            y2={linkState.cursorY - offsetY}
             stroke="#94a3b8"
             strokeDasharray="4 4"
             strokeWidth="2"

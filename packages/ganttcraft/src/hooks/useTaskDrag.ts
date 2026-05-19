@@ -18,32 +18,68 @@ export function useTaskDrag({ onTaskUpdate, onLinkCreate, calendar = AllDayCalen
   
   const [linkState, setLinkState] = useState<{ sourceId: string; cursorX: number; cursorY: number } | null>(null);
   const linkStateRef = useRef<{ sourceId: string; cursorX: number; cursorY: number } | null>(null);
+  const [linkTargetId, setLinkTargetIdState] = useState<string | null>(null);
   const linkTargetIdRef = useRef<string | null>(null);
 
   const setLinkTargetId = useCallback((id: string | null) => {
     linkTargetIdRef.current = id;
+    setLinkTargetIdState(id);
   }, []);
 
   const dragStateRef = useRef<{
     startX: number;
     initialTask: GanttTask;
     mode: DragMode;
+    svgElement?: SVGSVGElement | null;
   } | null>(null);
 
   const handleMouseDown = useCallback((task: GanttTask, mode: DragMode) => (e: React.MouseEvent | MouseEvent) => {
     e.stopPropagation();
+    if (typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
     
+    let svgElement: SVGSVGElement | null = null;
+    if (e.currentTarget) {
+      const target = e.currentTarget as any;
+      svgElement = target.ownerSVGElement || (target.tagName === 'svg' ? target : null);
+    }
+
     if (mode === 'link') {
-      const newLinkState = { sourceId: task.id, cursorX: e.clientX, cursorY: e.clientY };
+      let cursorX = e.clientX;
+      let cursorY = e.clientY;
+      if (svgElement) {
+        if (typeof svgElement.createSVGPoint === 'function' && typeof svgElement.getScreenCTM === 'function') {
+          const pt = svgElement.createSVGPoint();
+          pt.x = e.clientX;
+          pt.y = e.clientY;
+          const ctm = svgElement.getScreenCTM();
+          if (ctm) {
+            const transformed = pt.matrixTransform(ctm.inverse());
+            cursorX = transformed.x;
+            cursorY = transformed.y;
+          } else {
+            const rect = svgElement.getBoundingClientRect();
+            cursorX = e.clientX - rect.left;
+            cursorY = e.clientY - rect.top;
+          }
+        } else {
+          const rect = typeof svgElement.getBoundingClientRect === 'function' ? svgElement.getBoundingClientRect() : { left: 0, top: 0 };
+          cursorX = e.clientX - rect.left;
+          cursorY = e.clientY - rect.top;
+        }
+      }
+      const newLinkState = { sourceId: task.id, cursorX, cursorY };
       setLinkState(newLinkState);
       linkStateRef.current = newLinkState;
-      linkTargetIdRef.current = null;
-      dragStateRef.current = { startX: e.clientX, initialTask: { ...task }, mode };
+      setLinkTargetId(null);
+      dragStateRef.current = { startX: e.clientX, initialTask: { ...task }, mode, svgElement };
     } else {
       dragStateRef.current = {
         startX: e.clientX,
         initialTask: { ...task },
         mode,
+        svgElement,
       };
       setDraggingTask(task);
       draggingTaskRef.current = task;
@@ -52,16 +88,55 @@ export function useTaskDrag({ onTaskUpdate, onLinkCreate, calendar = AllDayCalen
     const handleMouseMove = (moveEvent: MouseEvent) => {
       if (!dragStateRef.current) return;
       
-      const { startX, initialTask, mode } = dragStateRef.current;
+      const { startX, initialTask, mode, svgElement } = dragStateRef.current;
       
       if (mode === 'link') {
+        let cursorX = moveEvent.clientX;
+        let cursorY = moveEvent.clientY;
+        if (svgElement) {
+          if (typeof svgElement.createSVGPoint === 'function' && typeof svgElement.getScreenCTM === 'function') {
+            const pt = svgElement.createSVGPoint();
+            pt.x = moveEvent.clientX;
+            pt.y = moveEvent.clientY;
+            const ctm = svgElement.getScreenCTM();
+            if (ctm) {
+              const transformed = pt.matrixTransform(ctm.inverse());
+              cursorX = transformed.x;
+              cursorY = transformed.y;
+            } else {
+              const rect = svgElement.getBoundingClientRect();
+              cursorX = moveEvent.clientX - rect.left;
+              cursorY = moveEvent.clientY - rect.top;
+            }
+          } else {
+            const rect = typeof svgElement.getBoundingClientRect === 'function' ? svgElement.getBoundingClientRect() : { left: 0, top: 0 };
+            cursorX = moveEvent.clientX - rect.left;
+            cursorY = moveEvent.clientY - rect.top;
+          }
+        }
         const updatedLinkState = { 
           sourceId: initialTask.id, 
-          cursorX: moveEvent.clientX, 
-          cursorY: moveEvent.clientY 
+          cursorX, 
+          cursorY 
         };
         setLinkState(updatedLinkState);
         linkStateRef.current = updatedLinkState;
+
+        // Detect hover target using elementFromPoint
+        if (typeof document.elementFromPoint === 'function') {
+          const elem = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+          if (elem) {
+            const dropZone = elem.closest('.gantt-task-drop-zone, [data-task-id]');
+            if (dropZone) {
+              const targetId = dropZone.getAttribute('data-task-id');
+              setLinkTargetId(targetId);
+            } else {
+              setLinkTargetId(null);
+            }
+          } else {
+            setLinkTargetId(null);
+          }
+        }
         return;
       }
 
@@ -111,7 +186,7 @@ export function useTaskDrag({ onTaskUpdate, onLinkCreate, calendar = AllDayCalen
         }
         setLinkState(null);
         linkStateRef.current = null;
-        linkTargetIdRef.current = null;
+        setLinkTargetId(null);
       } else if (finalTask && onTaskUpdate && initial) {
         // If the task actually changed
         if (initial.start.getTime() !== finalTask.start.getTime() || initial.end.getTime() !== finalTask.end.getTime()) {
@@ -126,12 +201,13 @@ export function useTaskDrag({ onTaskUpdate, onLinkCreate, calendar = AllDayCalen
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
-  }, [onTaskUpdate, onLinkCreate, calendar]);
+  }, [onTaskUpdate, onLinkCreate, calendar, setLinkTargetId]);
 
   return {
     draggingTask,
     handleMouseDown,
     linkState,
+    linkTargetId,
     setLinkTargetId,
   };
 }

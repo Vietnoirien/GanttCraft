@@ -176,10 +176,15 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
     return internalTasks.filter(t => !isHidden(t.id));
   }, [internalTasks, collapsedGroupIds]);
 
-  const virtualWindow = useMemo(
-    () => computeVirtualWindow(scrollTop, viewportHeight, ROW_HEIGHT, visibleTasks.length),
-    [scrollTop, viewportHeight, visibleTasks.length]
-  );
+  const virtualWindow = useMemo(() => {
+    // Clamp scrollTop to the Gantt task area. When the ResourcePanel is open the
+    // container scrolls past the last task row. Without clamping, computeVirtualWindow
+    // produces an oversized offsetY, pushing SVG content (arrows, grid lines) into the
+    // ResourcePanel area — visible because the SVG container has overflow:visible.
+    const ganttAreaHeight = visibleTasks.length * ROW_HEIGHT;
+    const clampedScrollTop = Math.min(scrollTop, Math.max(0, ganttAreaHeight - viewportHeight));
+    return computeVirtualWindow(clampedScrollTop, viewportHeight, ROW_HEIGHT, visibleTasks.length);
+  }, [scrollTop, viewportHeight, visibleTasks.length]);
 
   const toggleGroup = useCallback((taskId: string) => {
     setCollapsedGroupIds(prev => {

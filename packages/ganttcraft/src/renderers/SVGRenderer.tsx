@@ -43,13 +43,6 @@ export const SVGRenderer: React.FC = () => {
     });
   };
 
-  const layoutTasks = useMemo(() => {
-    return visibleTasks.map((task, idx) => {
-      const source = draggingTask && draggingTask.id === task.id ? draggingTask : task;
-      return calculateTaskLayout(source, idx, startDate, pixelsPerMs);
-    });
-  }, [visibleTasks, draggingTask, startDate, pixelsPerMs]);
-
   const startMs = startDate.getTime();
   const endMs = endDate.getTime();
   const totalMs = endMs - startMs + MS_PER_DAY * 7;
@@ -59,11 +52,18 @@ export const SVGRenderer: React.FC = () => {
   // Only render rows inside the virtual window
   const { startIndex, endIndex, offsetY } = virtualWindow;
 
-  // Filter to virtual window rows + apply X-axis culling
-  const visibleLayoutTasks = layoutTasks.filter((t, idx) => {
-    if (idx < startIndex || idx > endIndex) return false;
-    return isTaskVisible(t.x, t.width, scrollLeft, viewportWidth);
-  });
+  const slicedTasks = useMemo(() => {
+    return visibleTasks.slice(startIndex, endIndex + 1);
+  }, [visibleTasks, startIndex, endIndex]);
+
+  // Map only the sliced virtual window rows + apply X-axis culling
+  const visibleLayoutTasks = useMemo(() => {
+    return slicedTasks.map((task, relativeIdx) => {
+      const absoluteIdx = startIndex + relativeIdx;
+      const source = draggingTask && draggingTask.id === task.id ? draggingTask : task;
+      return calculateTaskLayout(source, absoluteIdx, startDate, pixelsPerMs);
+    }).filter(t => isTaskVisible(t.x, t.width, scrollLeft, viewportWidth));
+  }, [slicedTasks, draggingTask, startDate, pixelsPerMs, startIndex, scrollLeft, viewportWidth]);
 
   // Grid lines — also virtualized to visible rows only
   const visibleGridLines = visibleTasks
@@ -158,6 +158,17 @@ export const SVGRenderer: React.FC = () => {
                     aria-label={ariaLabel}
                     data-task-id={t.id}
                   >
+                    <rect
+                      className="gantt-task-drop-zone"
+                      x={0}
+                      y={localY}
+                      width={width}
+                      height={ROW_HEIGHT}
+                      fill={linkTargetId === t.id ? "rgba(59, 130, 246, 0.1)" : "transparent"}
+                      data-task-id={t.id}
+                      onMouseEnter={() => setLinkTargetId(t.id)}
+                      onMouseLeave={() => setLinkTargetId(null)}
+                    />
                     <polygon
                       points={`${cx},${cy - size} ${cx + size},${cy} ${cx},${cy + size} ${cx - size},${cy}`}
                       fill={fill}
@@ -187,6 +198,17 @@ export const SVGRenderer: React.FC = () => {
                     style={{ outline: 'none' }}
                     data-task-id={t.id}
                   >
+                    <rect
+                      className="gantt-task-drop-zone"
+                      x={0}
+                      y={localY}
+                      width={width}
+                      height={ROW_HEIGHT}
+                      fill={linkTargetId === t.id ? "rgba(59, 130, 246, 0.1)" : "transparent"}
+                      data-task-id={t.id}
+                      onMouseEnter={() => setLinkTargetId(t.id)}
+                      onMouseLeave={() => setLinkTargetId(null)}
+                    />
                     <path
                       d={`M ${t.x} ${cy + 6} L ${t.x} ${cy - 4} L ${t.x + t.width} ${cy - 4} L ${t.x + t.width} ${cy + 6} L ${t.x + t.width - 4} ${cy} L ${t.x + 4} ${cy} Z`}
                       fill="var(--gantt-group-fill, #1f2937)"
@@ -275,17 +297,6 @@ export const SVGRenderer: React.FC = () => {
                       strokeWidth={2}
                       style={{ cursor: 'crosshair', opacity: hoveredTaskId === t.id ? 1 : 0, transition: 'opacity 150ms' }}
                       onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(t, 'link')(e as any); }}
-                    />
-                    <rect
-                      className="gantt-task-drop-zone"
-                      x={t.x}
-                      y={localY}
-                      width={12}
-                      height={ROW_HEIGHT}
-                      fill={linkTargetId === t.id ? "rgba(59, 130, 246, 0.3)" : "transparent"}
-                      data-task-id={t.id}
-                      onMouseEnter={() => setLinkTargetId(t.id)}
-                      onMouseLeave={() => setLinkTargetId(null)}
                     />
                     <text x={t.x + 8} y={localY + ROW_HEIGHT / 2 + 4} fill="var(--gantt-task-text, #ffffff)" fontSize="12" pointerEvents="none">
                       {t.name}

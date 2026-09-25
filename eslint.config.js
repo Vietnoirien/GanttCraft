@@ -3,7 +3,6 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 import reactPlugin from "eslint-plugin-react";
 import reactHooksPlugin from "eslint-plugin-react-hooks";
-import nextConfig from "eslint-config-next";
 
 export default tseslint.config(
   {
@@ -11,7 +10,6 @@ export default tseslint.config(
       "node_modules",
       "dist",
       ".next",
-      "apps/GanttCraft-site/node_modules",
       "packages/ganttcraft/node_modules",
       "packages/ganttcraft/dist",
       "packages/ganttcraft/vite.config.ts",
@@ -21,14 +19,14 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["apps/GanttCraft-site/**/*.{ts,tsx}", "packages/ganttcraft/src/**/*.{ts,tsx}"],
+    files: ["packages/ganttcraft/src/**/*.{ts,tsx}"],
     plugins: {
       react: reactPlugin,
       "react-hooks": reactHooksPlugin,
     },
     languageOptions: {
       parserOptions: {
-        project: ["./apps/GanttCraft-site/tsconfig.json", "./packages/ganttcraft/tsconfig.json"],
+        project: ["./packages/ganttcraft/tsconfig.json"],
         tsconfigRootDir: import.meta.dirname,
       },
       globals: {
@@ -46,12 +44,6 @@ export default tseslint.config(
       ...reactHooksPlugin.configs.recommended.rules,
       "react/react-in-jsx-scope": "off",
       "@typescript-eslint/no-unused-expressions": "off",
-    },
-  },
-  {
-    files: ["apps/GanttCraft-site/**/*.{ts,tsx}"],
-    rules: {
-      ...nextConfig.rules,
     },
   }
 );

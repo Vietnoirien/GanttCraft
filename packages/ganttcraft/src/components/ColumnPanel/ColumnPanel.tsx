@@ -1,9 +1,33 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import { useGanttContext } from '../GanttProvider';
 import { ROW_HEIGHT } from '../../engine/layout';
+import { taskAccessibleLabel } from '../taskAccessibility';
 
 export const ColumnPanel: React.FC = () => {
-  const { tasks, visibleTasks, columns, showResourcePanel, toggleGroup, collapsedGroupIds } = useGanttContext();
+  const { tasks, visibleTasks, columns, showResourcePanel, toggleGroup, collapsedGroupIds, i18n } = useGanttContext();
+
+  const handleRowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>, taskId: string) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      const rows = Array.from(event.currentTarget.parentElement?.querySelectorAll<HTMLTableRowElement>('[data-list-task-id]') || []);
+      const index = rows.indexOf(event.currentTarget);
+      rows[index + (event.key === 'ArrowDown' ? 1 : -1)]?.focus();
+    } else if (event.key === 'ArrowRight' || event.key === 'Enter') {
+      const chart = event.currentTarget.closest('.gantt-chart-container');
+      const chartTask = Array.from((chart || document).querySelectorAll<SVGElement>('[data-chart-task-id]'))
+        .find(element => element.getAttribute('data-chart-task-id') === taskId);
+      if (chartTask) {
+        event.preventDefault();
+        chartTask.focus();
+      } else {
+        if (chart) {
+          event.preventDefault();
+          chart.dispatchEvent(new CustomEvent('gantt-focus-chart-task', { detail: taskId }));
+        }
+      }
+    }
+  };
 
   const uniqueResources = useMemo(() => {
     if (!showResourcePanel) return [];
@@ -14,11 +38,11 @@ export const ColumnPanel: React.FC = () => {
     return Array.from(res);
   }, [tasks, showResourcePanel]);
 
-  const getDepth = useCallback((taskId: string): number => {
+  const getDepth = (taskId: string): number => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || !task.parentId) return 0;
     return 1 + getDepth(task.parentId);
-  }, [tasks]);
+  };
 
   return (
     <div className="gantt-column-panel" style={{ borderRight: '1px solid var(--gantt-border, #e2e8f0)', backgroundColor: 'var(--gantt-bg, #ffffff)', minWidth: 250, maxWidth: 400 }}>
@@ -51,7 +75,14 @@ export const ColumnPanel: React.FC = () => {
         </thead>
         <tbody>
           {visibleTasks.map((task) => (
-            <tr key={task.id} style={{ height: ROW_HEIGHT }}>
+            <tr
+              key={task.id}
+              style={{ height: ROW_HEIGHT }}
+              tabIndex={0}
+              data-list-task-id={task.id}
+              aria-label={taskAccessibleLabel(task, i18n)}
+              onKeyDown={event => handleRowKeyDown(event, task.id)}
+            >
               {columns.map((col, colIndex) => (
                 <td key={col.id} style={{ 
                   padding: '0 12px', 
@@ -69,6 +100,8 @@ export const ColumnPanel: React.FC = () => {
                       {task.type === 'group' ? (
                         <button 
                           onClick={() => toggleGroup(task.id)} 
+                          aria-label={`${collapsedGroupIds.has(task.id) ? 'Expand' : 'Collapse'} ${task.name}`}
+                          aria-expanded={!collapsedGroupIds.has(task.id)}
                           style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0, fontSize: '10px', color: '#718096', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14 }}
                         >
                           {collapsedGroupIds.has(task.id) ? '▶' : '▼'}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AllDayCalendar, StandardCalendar } from './calendar';
+import { AllDayCalendar, StandardCalendar, createStandardCalendar } from './calendar';
 
 describe('AllDayCalendar', () => {
   describe('addWorkingDays', () => {
@@ -105,5 +105,39 @@ describe('StandardCalendar', () => {
       const result = StandardCalendar.nextWorkingDay(new Date('2024-01-07T00:00:00Z'));
       expect(result).toEqual(new Date('2024-01-08T00:00:00Z'));
     });
+  });
+});
+
+describe('standard calendar with a named holiday', () => {
+  const calendar = createStandardCalendar({ holidays: [{ date: '2024-01-08', name: 'Team holiday' }] });
+
+  it('skips the holiday and the weekend in both directions', () => {
+    expect(calendar.addWorkingDays(new Date('2024-01-05T00:00:00Z'), 1)).toEqual(new Date('2024-01-09T00:00:00Z'));
+    expect(calendar.addWorkingDays(new Date('2024-01-09T00:00:00Z'), -1)).toEqual(new Date('2024-01-05T00:00:00Z'));
+  });
+
+  it('excludes the holiday from duration and snaps to Tuesday', () => {
+    expect(calendar.workingDaysBetween(
+      new Date('2024-01-05T00:00:00Z'),
+      new Date('2024-01-10T00:00:00Z'),
+    )).toBe(2);
+    expect(calendar.nextWorkingDay(new Date('2024-01-08T00:00:00Z'))).toEqual(new Date('2024-01-09T00:00:00Z'));
+  });
+
+  it('keeps the supplied time of day while skipping a holiday', () => {
+    expect(calendar.addWorkingDays(new Date('2024-01-05T14:30:00Z'), 1)).toEqual(new Date('2024-01-09T14:30:00Z'));
+  });
+
+  it('preserves fractional working days across the holiday and weekend', () => {
+    expect(calendar.workingDaysBetween(
+      new Date('2024-01-05T14:00:00Z'),
+      new Date('2024-01-05T15:00:00Z'),
+    )).toBeCloseTo(1 / 24);
+    expect(calendar.addWorkingDays(new Date('2024-01-05T14:00:00Z'), 1 / 24))
+      .toEqual(new Date('2024-01-05T15:00:00Z'));
+    expect(calendar.addWorkingDays(new Date('2024-01-05T23:00:00Z'), 2 / 24))
+      .toEqual(new Date('2024-01-09T01:00:00Z'));
+    expect(calendar.addWorkingDays(new Date('2024-01-09T01:00:00Z'), -2 / 24))
+      .toEqual(new Date('2024-01-05T23:00:00Z'));
   });
 });

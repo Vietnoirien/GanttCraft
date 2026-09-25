@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
 import { ColumnPanel } from './ColumnPanel';
 import { GanttProvider } from '../GanttProvider';
 import { GanttTask, GanttColumn, GanttResource } from '../../types';
@@ -9,6 +9,22 @@ const tasks: GanttTask[] = [
 ];
 
 describe('ColumnPanel renderCell support', () => {
+  it('announces group expansion state', () => {
+    const groupTasks: GanttTask[] = [
+      { id: 'group', name: 'Phase 1', type: 'group', start: new Date('2024-01-01'), end: new Date('2024-01-05') },
+      { id: 'child', parentId: 'group', name: 'Child', start: new Date('2024-01-01'), end: new Date('2024-01-02') },
+    ];
+    const { getByRole } = render(
+      <GanttProvider tasks={groupTasks} columns={[{ id: 'name', header: 'Name', accessor: task => task.name }]}>
+        <ColumnPanel />
+      </GanttProvider>
+    );
+    const collapse = getByRole('button', { name: 'Collapse Phase 1' });
+    expect(collapse.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(collapse);
+    expect(getByRole('button', { name: 'Expand Phase 1' }).getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('renders the accessor value when renderCell is not provided', () => {
     const columns: GanttColumn[] = [
       { id: 'name', header: 'Name', accessor: (t) => t.name },

@@ -1,39 +1,33 @@
 import { GanttTask, TaskDependency } from '../types';
 import { WorkingCalendar, AllDayCalendar } from './calendar';
 
-/**
- * Applies a dependency constraint and returns the new start and end dates if they changed.
- */
+/** Returns the earliest start allowed by one dependency while preserving the successor's duration. */
 function applyDependencyConstraint(
   predecessor: GanttTask,
   successor: GanttTask,
   dep: TaskDependency,
   calendar: WorkingCalendar
-): { newStart: Date; newEnd: Date } | null {
+): Date | null {
   const lag = dep.lag || 0;
   const durationDays = calendar.workingDaysBetween(successor.start, successor.end);
 
   let newStart: Date;
-  let newEnd: Date;
-
   switch (dep.type) {
     case 'FS': {
       newStart = calendar.addWorkingDays(predecessor.end, lag);
-      newEnd = calendar.addWorkingDays(newStart, durationDays);
       break;
     }
     case 'SS': {
       newStart = calendar.addWorkingDays(predecessor.start, lag);
-      newEnd = calendar.addWorkingDays(newStart, durationDays);
       break;
     }
     case 'FF': {
-      newEnd = calendar.addWorkingDays(predecessor.end, lag);
+      const newEnd = calendar.addWorkingDays(predecessor.end, lag);
       newStart = calendar.addWorkingDays(newEnd, -durationDays);
       break;
     }
     case 'SF': {
-      newEnd = calendar.addWorkingDays(predecessor.start, lag);
+      const newEnd = calendar.addWorkingDays(predecessor.start, lag);
       newStart = calendar.addWorkingDays(newEnd, -durationDays);
       break;
     }
@@ -41,10 +35,7 @@ function applyDependencyConstraint(
       return null;
   }
 
-  if (successor.start.getTime() !== newStart.getTime() || successor.end.getTime() !== newEnd.getTime()) {
-    return { newStart, newEnd };
-  }
-  return null;
+  return calendar.nextWorkingDay(newStart);
 }
 
 function applyConstraint(task: GanttTask, proposedStart: Date): Date {
@@ -122,45 +113,62 @@ export function cascadeSchedule(
   const tasksMap = new Map<string, GanttTask>();
   tasks.forEach((t) => tasksMap.set(t.id, t.id === modifiedTask.id ? modifiedTask : { ...t }));
 
-  // Create an adjacency list: Map<taskId, dependentTasksIds>
+  // Build the dependency graph once, counting only tasks present in this schedule.
   const successorsMap = new Map<string, string[]>();
+  const indegree = new Map<string, number>();
+  tasks.forEach(t => indegree.set(t.id, 0));
   tasks.forEach((t) => {
     t.dependencies?.forEach((dep) => {
+      if (!tasksMap.has(dep.id)) return;
       if (!successorsMap.has(dep.id)) successorsMap.set(dep.id, []);
-      successorsMap.get(dep.id)!.push(t.id);
+      if (!successorsMap.get(dep.id)!.includes(t.id)) {
+        successorsMap.get(dep.id)!.push(t.id);
+        indegree.set(t.id, indegree.get(t.id)! + 1);
+      }
     });
   });
 
-  // BFS topological traversal starting from the modified task.
-  // Each iteration processes the current task's direct successors, applies dependency constraints,
-  // updates their dates if necessary, and re-queues them for further propagation.
-  // The `processed` set prevents re-visiting tasks in diamond-dependency graphs.
-  const queue = [modifiedTask.id];
-  const processed = new Set<string>();
+  const affected = new Set<string>([modifiedTask.id]);
+  const pending = [modifiedTask.id];
+  while (pending.length > 0) {
+    for (const successorId of successorsMap.get(pending.shift()!) || []) {
+      if (affected.has(successorId)) continue;
+      affected.add(successorId);
+      pending.push(successorId);
+    }
+  }
+
+  // Process every predecessor before its successor, including predecessors outside
+  // the affected branch. This makes each successor's dates final before propagation.
+  const queue = tasks.filter(t => indegree.get(t.id) === 0).map(t => t.id);
 
   while (queue.length > 0) {
     const currentId = queue.shift()!;
-    if (processed.has(currentId)) continue;
-    processed.add(currentId);
+    if (currentId !== modifiedTask.id && affected.has(currentId)) {
+      const task = tasksMap.get(currentId)!;
+      const durationDays = calendar.workingDaysBetween(task.start, task.end);
+      let earliestStart: Date | null = null;
 
-    const currentTask = tasksMap.get(currentId)!;
-    const successors = successorsMap.get(currentId) || [];
-
-    for (const succId of successors) {
-      const succTask = tasksMap.get(succId)!;
-      const depDef = succTask.dependencies?.find(d => d.id === currentId);
-      
-      if (depDef) {
-        const constraint = applyDependencyConstraint(currentTask, succTask, depDef, calendar);
-        if (constraint) {
-          const durationDays = calendar.workingDaysBetween(succTask.start, succTask.end);
-          const finalStart = applyConstraint(succTask, constraint.newStart);
-          
-          succTask.start = new Date(finalStart);
-          succTask.end = calendar.addWorkingDays(finalStart, durationDays);
-          queue.push(succId); // Re-evaluate its successors
+      for (const dep of task.dependencies || []) {
+        const predecessor = tasksMap.get(dep.id);
+        if (!predecessor) continue;
+        const allowedStart = applyDependencyConstraint(predecessor, task, dep, calendar);
+        if (allowedStart && (!earliestStart || allowedStart > earliestStart)) {
+          earliestStart = allowedStart;
         }
       }
+
+      if (earliestStart) {
+        const finalStart = applyConstraint(task, earliestStart);
+        task.start = new Date(finalStart);
+        task.end = calendar.addWorkingDays(finalStart, durationDays);
+      }
+    }
+
+    for (const successorId of successorsMap.get(currentId) || []) {
+      const remaining = indegree.get(successorId)! - 1;
+      indegree.set(successorId, remaining);
+      if (remaining === 0) queue.push(successorId);
     }
   }
 

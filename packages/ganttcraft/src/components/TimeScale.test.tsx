@@ -15,11 +15,13 @@ const makeTasks = (startIso: string, endIso: string): GanttTask[] => [
 ];
 
 const wrapper = (tasks: GanttTask[], viewMode: 'day' | 'week' | 'month' | 'quarter' | 'year' = 'day') => {
-  return ({ children }: { children: React.ReactNode }) => (
+  const InnerWrapper = ({ children }: { children: React.ReactNode }) => (
     <GanttProvider tasks={tasks} columns={[]} viewMode={viewMode}>
       {children}
     </GanttProvider>
   );
+  InnerWrapper.displayName = 'InnerWrapper';
+  return InnerWrapper;
 };
 
 describe('TimeScale', () => {

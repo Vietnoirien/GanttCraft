@@ -50,48 +50,102 @@ function isWeekend(date: Date): boolean {
   return dow === 0 || dow === 6;
 }
 
-/**
- * StandardCalendar treats Monday–Friday as working days and skips
- * Saturday (6) and Sunday (0) in all date arithmetic.
- */
-export const StandardCalendar: WorkingCalendar = {
-  addWorkingDays(date: Date, days: number): Date {
-    const step = days >= 0 ? 1 : -1;
-    let remaining = Math.abs(days);
-    let current = new Date(date);
+/** A non-working day identified by its UTC calendar date. */
+export interface HolidayException {
+  date: string;
+  name: string;
+}
 
-    while (remaining > 0) {
-      current = new Date(current.getTime() + step * MS_PER_DAY);
-      if (!isWeekend(current)) {
-        remaining--;
-      }
+export interface StandardCalendarOptions {
+  holidays?: HolidayException[];
+}
+
+/** Create a Monday–Friday calendar that also skips the supplied holidays. */
+export function createStandardCalendar({ holidays = [] }: StandardCalendarOptions = {}): WorkingCalendar {
+  const holidayDates = new Set(holidays.map(holiday => {
+    const parsed = new Date(`${holiday.date}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(holiday.date) ||
+        Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== holiday.date ||
+        !holiday.name.trim()) {
+      throw new RangeError('Holidays require a valid YYYY-MM-DD date and a name');
     }
+    return holiday.date;
+  }));
 
-    return current;
-  },
+  const isWorkingDay = (date: Date) =>
+    !isWeekend(date) && !holidayDates.has(date.toISOString().slice(0, 10));
 
-  workingDaysBetween(start: Date, end: Date): number {
-    const step = end >= start ? 1 : -1;
-    let count = 0;
-    let current = new Date(start);
-
-    while (
-      step > 0 ? current < end : current > end
-    ) {
-      if (!isWeekend(current)) {
-        count++;
-      }
-      current = new Date(current.getTime() + step * MS_PER_DAY);
-    }
-
-    return count;
-  },
-
-  nextWorkingDay(date: Date): Date {
+  const snapToNextWorkingDay = (date: Date): Date => {
     let current = new Date(date);
-    while (isWeekend(current)) {
+    while (!isWorkingDay(current)) {
       current = new Date(current.getTime() + MS_PER_DAY);
     }
     return current;
-  },
-};
+  };
+
+  return {
+    addWorkingDays(date: Date, days: number): Date {
+      if (!Number.isFinite(days)) throw new RangeError('Working days must be finite');
+      const step = days >= 0 ? 1 : -1;
+      let remaining = Math.trunc(Math.abs(days));
+      let current = new Date(date);
+
+      while (remaining > 0) {
+        current = new Date(current.getTime() + step * MS_PER_DAY);
+        if (isWorkingDay(current)) remaining--;
+      }
+
+      // Whole-day moves retain the caller's time of day. For a partial day,
+      // consume only working hours, crossing excluded dates when necessary.
+      let remainingMs = Math.round((Math.abs(days) - Math.trunc(Math.abs(days))) * MS_PER_DAY);
+      while (remainingMs > 0) {
+        if (step > 0) {
+          const dayStart = new Date(current).setUTCHours(0, 0, 0, 0);
+          if (!isWorkingDay(current)) {
+            current = new Date(dayStart + MS_PER_DAY);
+            continue;
+          }
+          const consumed = Math.min(remainingMs, dayStart + MS_PER_DAY - current.getTime());
+          current = new Date(current.getTime() + consumed);
+          remainingMs -= consumed;
+          if (remainingMs === 0 && !isWorkingDay(current)) {
+            current = snapToNextWorkingDay(current);
+          }
+        } else {
+          const preceding = new Date(current.getTime() - 1);
+          const dayStart = preceding.setUTCHours(0, 0, 0, 0);
+          if (!isWorkingDay(preceding)) {
+            current = new Date(dayStart);
+            continue;
+          }
+          const consumed = Math.min(remainingMs, current.getTime() - dayStart);
+          current = new Date(current.getTime() - consumed);
+          remainingMs -= consumed;
+        }
+      }
+
+      return current;
+    },
+
+    workingDaysBetween(start: Date, end: Date): number {
+      const reversed = end < start;
+      let count = 0;
+      let current = (reversed ? end : start).getTime();
+      const endMs = (reversed ? start : end).getTime();
+
+      while (current < endMs) {
+        const dayStart = new Date(current).setUTCHours(0, 0, 0, 0);
+        const next = Math.min(endMs, dayStart + MS_PER_DAY);
+        if (isWorkingDay(new Date(current))) count += (next - current) / MS_PER_DAY;
+        current = next;
+      }
+
+      return reversed ? -count : count;
+    },
+
+    nextWorkingDay: snapToNextWorkingDay,
+  };
+}
+
+/** Monday–Friday calendar with no holiday exceptions. */
+export const StandardCalendar: WorkingCalendar = createStandardCalendar();

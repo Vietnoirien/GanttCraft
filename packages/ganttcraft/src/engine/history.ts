@@ -39,4 +39,9 @@ export class HistoryManager {
   canRedo(): boolean {
     return this.redoStack.length > 0;
   }
+
+  clear() {
+    this.undoStack = [];
+    this.redoStack = [];
+  }
 }

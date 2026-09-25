@@ -5,8 +5,30 @@ import { isTaskVisible } from '../engine/virtualizer';
 import { useTaskDrag } from '../hooks/useTaskDrag';
 import { ContextMenu } from '../components/ContextMenu/ContextMenu';
 import { DependencyLayer } from './DependencyLayer';
+import { taskAccessibleLabel } from '../components/taskAccessibility';
+import { GanttTask } from '../types';
+
+// Default navigation supports same-origin relative paths and absolute HTTP(S) URLs.
+export const isSafeTaskDestination = (destination: string, baseUrl: string): boolean => {
+  if (!destination || /[\s\\]/.test(destination)) return false;
+
+  const isAbsoluteHttpUrl = /^https?:\/\//i.test(destination);
+  if (!isAbsoluteHttpUrl && (/^[a-z][a-z\d+.-]*:/i.test(destination) || destination.startsWith('//'))) {
+    return false;
+  }
+
+  try {
+    const base = new URL(baseUrl);
+    const url = new URL(destination, base);
+    return (url.protocol === 'http:' || url.protocol === 'https:')
+      && (isAbsoluteHttpUrl || url.origin === base.origin);
+  } catch {
+    return false;
+  }
+};
 
 export const SVGRenderer: React.FC = () => {
+  const keyboardHelpId = React.useId();
   const {
     visibleTasks,
     startDate,
@@ -16,31 +38,155 @@ export const SVGRenderer: React.FC = () => {
     renderTask,
     scrollLeft,
     viewportWidth,
+    viewportHeight,
     virtualWindow,
+    setScrollState,
     i18n,
     addDependency,
     deleteTask,
     showCriticalPath,
     conflicts,
     onTaskNavigate,
+    calendar,
   } = useGanttContext();
 
   const { draggingTask, handleMouseDown, setLinkTargetId, linkState, linkTargetId } = useTaskDrag({
     onTaskUpdate: updateTask,
     onLinkCreate: addDependency,
+    calendar,
   });
 
   const [hoveredTaskId, setHoveredTaskId] = React.useState<string | null>(null);
+  const [focusedTaskId, setFocusedTaskId] = React.useState<string | null>(null);
   const [contextMenuState, setContextMenuState] = React.useState<{ taskId: string, x: number, y: number, isGroup: boolean } | null>(null);
+  const [linkSourceId, setLinkSourceId] = React.useState<string | null>(null);
+  const [keyboardMessage, setKeyboardMessage] = React.useState('');
+  const [pendingFocusTaskId, setPendingFocusTaskId] = React.useState<string | null>(null);
+  const menuTriggerRef = React.useRef<HTMLElement | SVGElement | null>(null);
+  const rendererRef = React.useRef<HTMLDivElement | null>(null);
 
-  const handleContextMenu = (e: React.MouseEvent, taskId: string, isGroup: boolean) => {
+  const focusChartTask = React.useCallback((taskId: string) => {
+    const rendered = Array.from(rendererRef.current?.querySelectorAll<SVGGElement>('[data-chart-task-id]') || [])
+      .find(element => element.getAttribute('data-chart-task-id') === taskId);
+    if (rendered) {
+      rendered.focus();
+      return;
+    }
+
+    const index = visibleTasks.findIndex(task => task.id === taskId);
+    const scrollContainer = rendererRef.current?.closest<HTMLElement>('[data-gantt-scroll-container]');
+    if (index < 0 || !scrollContainer) return;
+    const layout = calculateTaskLayout(visibleTasks[index], index, startDate, pixelsPerMs);
+    const top = Math.max(0, index * ROW_HEIGHT - viewportHeight / 2);
+    const left = Math.max(0, layout.x - viewportWidth / 2);
+    setPendingFocusTaskId(taskId);
+    scrollContainer.scrollTop = top;
+    scrollContainer.scrollLeft = left;
+    setScrollState(top, left, viewportHeight, viewportWidth);
+  }, [visibleTasks, startDate, pixelsPerMs, viewportHeight, viewportWidth, setScrollState]);
+
+  React.useEffect(() => {
+    const chart = rendererRef.current?.closest('.gantt-chart-container');
+    if (!chart) return;
+    const onFocusTask = (event: Event) => focusChartTask((event as CustomEvent<string>).detail);
+    chart.addEventListener('gantt-focus-chart-task', onFocusTask);
+    return () => chart.removeEventListener('gantt-focus-chart-task', onFocusTask);
+  }, [focusChartTask]);
+
+  const openTaskMenu = (taskId: string, isGroup: boolean, trigger: SVGGElement, x: number, y: number) => {
+    menuTriggerRef.current = trigger;
+    setContextMenuState({ taskId, x, y, isGroup });
+  };
+
+  const handleContextMenu = (e: React.MouseEvent<SVGGElement>, taskId: string, isGroup: boolean) => {
     e.preventDefault();
-    setContextMenuState({
-      taskId,
-      x: e.clientX,
-      y: e.clientY,
-      isGroup
-    });
+    openTaskMenu(taskId, isGroup, e.currentTarget, e.clientX, e.clientY);
+  };
+
+  const closeTaskMenu = () => {
+    setContextMenuState(null);
+    if (menuTriggerRef.current?.isConnected) menuTriggerRef.current.focus();
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    const nextTask = visibleTasks.find(task => task.id !== taskId);
+    menuTriggerRef.current = nextTask
+      ? Array.from(rendererRef.current?.querySelectorAll<SVGGElement>('[data-chart-task-id]') || [])
+        .find(element => element.getAttribute('data-chart-task-id') === nextTask.id)
+        || Array.from(document.querySelectorAll<HTMLTableRowElement>('[data-list-task-id]'))
+          .find(element => element.getAttribute('data-list-task-id') === nextTask.id)
+        || rendererRef.current
+      : rendererRef.current;
+    deleteTask(taskId);
+  };
+
+  const handleTaskKeyDown = (event: React.KeyboardEvent<SVGGElement>, task: GanttTask) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Escape' && linkSourceId) {
+      event.preventDefault();
+      setLinkSourceId(null);
+      setKeyboardMessage('Dependency selection cancelled.');
+      return;
+    }
+
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      const index = visibleTasks.findIndex(candidate => candidate.id === task.id);
+      const next = visibleTasks[index + (event.key === 'ArrowDown' ? 1 : -1)];
+      if (next) focusChartTask(next.id);
+      return;
+    }
+
+    if (linkSourceId && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      if (linkSourceId !== task.id) {
+        addDependency(linkSourceId, task.id);
+        setKeyboardMessage(`Dependency added to ${task.name}.`);
+        setLinkSourceId(null);
+      }
+      return;
+    }
+
+    if ((event.key === 'l' || event.key === 'L') && !event.altKey && !event.ctrlKey && !event.metaKey && task.type !== 'group') {
+      event.preventDefault();
+      setLinkSourceId(task.id);
+      setKeyboardMessage(`Choose a target for ${task.name} with Arrow Up or Arrow Down, then press Enter. Escape cancels.`);
+      return;
+    }
+
+    if (event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight') && task.type !== 'group') {
+      event.preventDefault();
+      const days = event.key === 'ArrowRight' ? 1 : -1;
+      if (event.ctrlKey && task.type !== 'milestone') {
+        const start = calendar.nextWorkingDay(calendar.addWorkingDays(task.start, days));
+        if (start < task.end) updateTask({ ...task, start });
+      } else if (event.shiftKey && task.type !== 'milestone') {
+        const end = calendar.nextWorkingDay(calendar.addWorkingDays(task.end, days));
+        if (end > task.start) updateTask({ ...task, end });
+      } else if (!event.ctrlKey && !event.shiftKey) {
+        const duration = calendar.workingDaysBetween(task.start, task.end);
+        const start = calendar.nextWorkingDay(calendar.addWorkingDays(task.start, days));
+        updateTask({ ...task, start, end: calendar.addWorkingDays(start, duration) });
+      }
+      return;
+    }
+
+    if (event.key === 'ArrowLeft' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      const chart = rendererRef.current?.closest('.gantt-chart-container');
+      const listTask = Array.from((chart || document).querySelectorAll<HTMLTableRowElement>('[data-list-task-id]'))
+        .find(element => element.getAttribute('data-list-task-id') === task.id);
+      if (listTask) {
+        event.preventDefault();
+        listTask.focus();
+      }
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      event.preventDefault();
+      const rect = event.currentTarget.getBoundingClientRect();
+      openTaskMenu(task.id, task.type === 'group', event.currentTarget, rect.left, rect.bottom);
+    }
   };
 
   const startMs = startDate.getTime();
@@ -65,16 +211,35 @@ export const SVGRenderer: React.FC = () => {
     }).filter(t => isTaskVisible(t.x, t.width, scrollLeft, viewportWidth));
   }, [slicedTasks, draggingTask, startDate, pixelsPerMs, startIndex, scrollLeft, viewportWidth]);
 
+  React.useEffect(() => {
+    if (!pendingFocusTaskId) return;
+    const rendered = Array.from(rendererRef.current?.querySelectorAll<SVGGElement>('[data-chart-task-id]') || [])
+      .find(element => element.getAttribute('data-chart-task-id') === pendingFocusTaskId);
+    if (rendered) {
+      rendered.focus();
+      setPendingFocusTaskId(null);
+    }
+  }, [pendingFocusTaskId, visibleLayoutTasks]);
+
   // Grid lines — also virtualized to visible rows only
   const visibleGridLines = visibleTasks
     .slice(startIndex, endIndex + 1)
     .map((_, i) => startIndex + i);
 
   return (
-    <div className="gantt-svg-container" style={{ overflow: 'visible', flexGrow: 1, flexShrink: 0, position: 'relative' }}>
+    <div ref={rendererRef} tabIndex={-1} className="gantt-svg-container" style={{ overflow: 'visible', flexGrow: 1, flexShrink: 0, position: 'relative' }}>
+      <div id={keyboardHelpId} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clipPath: 'inset(50%)' }}>
+        Use Up and Down to move between chart tasks. Left returns to the task list. Enter opens task actions. Alt with Left or Right moves a task; add Shift to resize its end or Control to resize its start. Press L to link tasks.
+      </div>
+      <div role="status" aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clipPath: 'inset(50%)' }}>
+        {keyboardMessage}
+      </div>
       {/* Spacer to maintain total scroll height */}
       <div style={{ height: virtualWindow.totalHeight, position: 'relative' }}>
         <svg
+          className="gantt-svg"
+          role="group"
+          aria-label="Timeline"
           width={width}
           height={height}
           style={{
@@ -109,22 +274,36 @@ export const SVGRenderer: React.FC = () => {
               if (renderTask) {
                 // Consumer-provided renderTask: wrap in foreignObject
                 return (
-                  <foreignObject
+                  <g
                     key={t.id}
-                    x={t.x}
-                    y={localY + (ROW_HEIGHT - t.height) / 2}
-                    width={t.width}
-                    height={t.height}
-                    style={{ overflow: 'visible' }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={taskAccessibleLabel(t, i18n)}
+                    aria-describedby={keyboardHelpId}
+                    aria-haspopup="menu"
+                    data-chart-task-id={t.id}
+                    onKeyDown={event => handleTaskKeyDown(event, t)}
+                    onContextMenu={event => handleContextMenu(event, t.id, t.type === 'group')}
+                    onFocus={() => setFocusedTaskId(t.id)}
+                    onBlur={() => setFocusedTaskId(null)}
+                    style={{ outline: focusedTaskId === t.id ? '2px solid var(--gantt-focus, #1d4ed8)' : undefined }}
                   >
-                    <div
-                      // @ts-expect-error -- xmlns needed for SVG foreignObject
-                      xmlns="http://www.w3.org/1999/xhtml"
-                      style={{ width: '100%', height: '100%' }}
+                    <foreignObject
+                      x={t.x}
+                      y={localY + (ROW_HEIGHT - t.height) / 2}
+                      width={t.width}
+                      height={t.height}
+                      style={{ overflow: 'visible' }}
                     >
-                      {renderTask(t)}
-                    </div>
-                  </foreignObject>
+                      <div
+                        // @ts-expect-error -- xmlns needed for SVG foreignObject
+                        xmlns="http://www.w3.org/1999/xhtml"
+                        style={{ width: '100%', height: '100%' }}
+                      >
+                        {renderTask(t)}
+                      </div>
+                    </foreignObject>
+                  </g>
                 );
               }
 
@@ -145,18 +324,24 @@ export const SVGRenderer: React.FC = () => {
                 const cy = localY + ROW_HEIGHT / 2;
                 const size = 12;
                 const taskConflicts = conflicts[t.id];
-                const ariaLabel = `${t.name}, Milestone on ${t.start.toLocaleDateString(i18n.locale.code)}`;
+                const ariaLabel = taskAccessibleLabel(t, i18n);
 
                 return (
                   <g 
                     key={t.id} 
-                    style={{ cursor: 'move', outline: 'none' }} 
-                    onMouseDown={(e) => handleMouseDown(t, 'move')(e as any)}
+                    style={{ cursor: 'move', outline: focusedTaskId === t.id ? '2px solid var(--gantt-focus, #1d4ed8)' : undefined }}
+                    onMouseDown={(e) => handleMouseDown(t, 'move')(e)}
                     onContextMenu={(e) => handleContextMenu(e, t.id, false)}
+                    onKeyDown={event => handleTaskKeyDown(event, t)}
+                    onFocus={() => setFocusedTaskId(t.id)}
+                    onBlur={() => setFocusedTaskId(null)}
                     tabIndex={0}
-                    role="row"
+                    role="button"
                     aria-label={ariaLabel}
+                    aria-describedby={keyboardHelpId}
+                    aria-haspopup="menu"
                     data-task-id={t.id}
+                    data-chart-task-id={t.id}
                   >
                     <rect
                       className="gantt-task-drop-zone"
@@ -185,18 +370,24 @@ export const SVGRenderer: React.FC = () => {
 
               if (t.type === 'group') {
                 const cy = localY + ROW_HEIGHT / 2;
-                const ariaLabel = `${t.name}, Group from ${t.start.toLocaleDateString(i18n.locale.code)} to ${t.end.toLocaleDateString(i18n.locale.code)}`;
+                const ariaLabel = taskAccessibleLabel(t, i18n);
                 const taskConflicts = conflicts[t.id];
 
                 return (
                   <g 
                     key={t.id}
                     tabIndex={0}
-                    role="row"
+                    role="button"
                     aria-label={ariaLabel}
+                    aria-describedby={keyboardHelpId}
+                    aria-haspopup="menu"
                     onContextMenu={(e) => handleContextMenu(e, t.id, true)}
-                    style={{ outline: 'none' }}
+                    onKeyDown={event => handleTaskKeyDown(event, t)}
+                    onFocus={() => setFocusedTaskId(t.id)}
+                    onBlur={() => setFocusedTaskId(null)}
+                    style={{ outline: focusedTaskId === t.id ? '2px solid var(--gantt-focus, #1d4ed8)' : undefined }}
                     data-task-id={t.id}
+                    data-chart-task-id={t.id}
                   >
                     <rect
                       className="gantt-task-drop-zone"
@@ -225,7 +416,7 @@ export const SVGRenderer: React.FC = () => {
 
               // Standard Task
               const taskConflicts = conflicts[t.id];
-              const ariaLabel = `${i18n.strings.taskName} ${t.name}, ${i18n.strings.startDate} ${t.start.toLocaleDateString(i18n.locale.code)}, ${i18n.strings.endDate} ${t.end.toLocaleDateString(i18n.locale.code)}, ${i18n.strings.progress} ${t.progress || 0}%`;
+              const ariaLabel = taskAccessibleLabel(t, i18n);
 
               return (
                 <g key={t.id}>
@@ -240,16 +431,33 @@ export const SVGRenderer: React.FC = () => {
                     />
                   )}
                   <g 
-                    style={{ cursor: 'move', outline: 'none' }} 
-                    onMouseDown={(e) => handleMouseDown(t, 'move')(e as any)}
+                    style={{ cursor: 'move', outline: focusedTaskId === t.id ? '2px solid var(--gantt-focus, #1d4ed8)' : undefined }}
+                    onMouseDown={(e) => handleMouseDown(t, 'move')(e)}
                     onMouseEnter={() => setHoveredTaskId(t.id)}
                     onMouseLeave={() => setHoveredTaskId(null)}
                     onContextMenu={(e) => handleContextMenu(e, t.id, false)}
+                    onKeyDown={event => handleTaskKeyDown(event, t)}
+                    onFocus={() => setFocusedTaskId(t.id)}
+                    onBlur={() => setFocusedTaskId(null)}
                     tabIndex={0}
-                    role="row"
+                    role="button"
                     aria-label={ariaLabel}
+                    aria-describedby={keyboardHelpId}
+                    aria-haspopup="menu"
                     data-task-id={t.id}
+                    data-chart-task-id={t.id}
                   >
+                    <rect
+                      className="gantt-task-drop-zone"
+                      x={0}
+                      y={localY}
+                      width={width}
+                      height={ROW_HEIGHT}
+                      fill={linkTargetId === t.id ? 'rgba(59, 130, 246, 0.1)' : 'transparent'}
+                      data-task-id={t.id}
+                      onMouseEnter={() => setLinkTargetId(t.id)}
+                      onMouseLeave={() => setLinkTargetId(null)}
+                    />
                     <rect
                       x={t.x}
                       y={localY + (ROW_HEIGHT - t.height) / 2}
@@ -276,7 +484,7 @@ export const SVGRenderer: React.FC = () => {
                       height={t.height}
                       fill="transparent"
                       style={{ cursor: 'col-resize' }}
-                      onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(t, 'resize-left')(e as any); }}
+                      onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(t, 'resize-left')(e); }}
                     />
                     <rect
                       x={t.x + t.width - 6}
@@ -285,7 +493,7 @@ export const SVGRenderer: React.FC = () => {
                       height={t.height}
                       fill="transparent"
                       style={{ cursor: 'col-resize' }}
-                      onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(t, 'resize-right')(e as any); }}
+                      onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(t, 'resize-right')(e); }}
                     />
                     <circle
                       className="gantt-task-link-handle"
@@ -296,7 +504,7 @@ export const SVGRenderer: React.FC = () => {
                       stroke="var(--gantt-bg, #ffffff)"
                       strokeWidth={2}
                       style={{ cursor: 'crosshair', opacity: hoveredTaskId === t.id ? 1 : 0, transition: 'opacity 150ms' }}
-                      onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(t, 'link')(e as any); }}
+                      onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(t, 'link')(e); }}
                     />
                     <text x={t.x + 8} y={localY + ROW_HEIGHT / 2 + 4} fill="var(--gantt-task-text, #ffffff)" fontSize="12" pointerEvents="none">
                       {t.name}
@@ -318,7 +526,7 @@ export const SVGRenderer: React.FC = () => {
           <ContextMenu
             x={contextMenuState.x}
             y={contextMenuState.y}
-            onClose={() => setContextMenuState(null)}
+            onClose={closeTaskMenu}
             items={[
               {
                 id: 'edit',
@@ -332,8 +540,8 @@ export const SVGRenderer: React.FC = () => {
                 id: 'add-dependency',
                 label: 'Add Dependency', // Can be i18n'd later
                 onClick: () => {
-                  // Future integration for a manual dependency dialog
-                  console.log(`Add dependency to ${contextMenuState.taskId}`);
+                  setLinkSourceId(contextMenuState.taskId);
+                  setKeyboardMessage(`Choose a target for ${targetTask?.name || 'this task'} with Arrow Up or Arrow Down, then press Enter. Escape cancels.`);
                 }
               }] : []),
               ...(targetTask?.slug ? [{
@@ -342,7 +550,7 @@ export const SVGRenderer: React.FC = () => {
                 onClick: () => {
                   if (onTaskNavigate && targetTask) {
                     onTaskNavigate(targetTask);
-                  } else if (targetTask?.slug) {
+                  } else if (targetTask?.slug && isSafeTaskDestination(targetTask.slug, window.location.href)) {
                     window.location.href = targetTask.slug;
                   }
                 }
@@ -352,7 +560,7 @@ export const SVGRenderer: React.FC = () => {
                 label: i18n.strings.deleteTask || 'Delete Task',
                 variant: 'danger',
                 onClick: () => {
-                  deleteTask(contextMenuState.taskId);
+                  handleDeleteTask(contextMenuState.taskId);
                 }
               }
             ]}

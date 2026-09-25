@@ -17,7 +17,7 @@ export interface GanttChartProps {
   autoLevelResources?: boolean;
   /** Callback fired whenever tasks are mutated (drag, resize, auto-schedule cascade). Receives the full updated task array. */
   onTasksChange?: (tasks: GanttTask[]) => void;
-  /** When true, runs `cascadeSchedule` on every task change, propagating date shifts through the dependency graph. Default: false. */
+  /** When true, runs `cascadeSchedule` on every task change, propagating date shifts through the dependency graph. Default: true. */
   autoSchedule?: boolean;
   /** Zoom level — controls the time scale header and pixel density. Default: 'day'. */
   viewMode?: ViewMode;
@@ -39,6 +39,8 @@ export interface GanttChartProps {
   calendar?: WorkingCalendar;
   /** When true, enables global Ctrl+Z / Cmd+Z keyboard shortcuts for undo/redo. Default: true. */
   undoRedoEnabled?: boolean;
+  /** Called with the full task when its Navigate action is selected. */
+  onTaskNavigate?: (task: GanttTask) => void;
 }
 
 const defaultColumns: GanttColumn[] = [
@@ -62,6 +64,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   i18n,
   calendar,
   undoRedoEnabled = true,
+  onTaskNavigate,
 }) => {
   return (
     <GanttProvider
@@ -81,8 +84,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       i18n={i18n}
       calendar={calendar}
       undoRedoEnabled={undoRedoEnabled}
+      onTaskNavigate={onTaskNavigate}
     >
-      <div className="gantt-chart-container" style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden' }} role="grid" aria-label="Gantt Chart">
+      <div className="gantt-chart-container" style={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden' }} role="region" aria-label="Gantt Chart">
         <GanttBody />
       </div>
     </GanttProvider>

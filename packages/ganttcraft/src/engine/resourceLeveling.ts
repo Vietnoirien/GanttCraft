@@ -90,7 +90,7 @@ export function levelResources(
             const newStart = new Date(Math.max(taskToDelay.start.getTime(), blockingTask.end.getTime()));
             const newEnd = new Date(newStart.getTime() + duration);
 
-            let updatedTask = {
+            const updatedTask = {
               ...taskToDelay,
               start: newStart,
               end: newEnd,

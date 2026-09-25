@@ -23,4 +23,4 @@ Leave the environment name empty. Trusted publishing uses GitHub OIDC, so no `NP
 
 Publishing an existing version will fail because npm versions are immutable. The documentation site's updater checks npm daily and opens a separate PR when the published version changes.
 
-For site PR creation, enable **Allow GitHub Actions to create and approve pull requests** under the GanttCraft-site repository's **Settings → Actions → General → Workflow permissions**. Its updater uses the repository's scoped `GITHUB_TOKEN`; it does not need a cross-repository secret.
+The GanttCraft-site repository has **Allow GitHub Actions to create and approve pull requests** enabled under **Settings → Actions → General → Workflow permissions**. Keep it enabled for site update PRs. Its updater uses the repository's scoped `GITHUB_TOKEN`; it does not need a cross-repository secret.

@@ -18,6 +18,7 @@ export const GanttBody: React.FC = () => {
   return (
     <div
       ref={containerRef}
+      data-gantt-scroll-container
       onScroll={handleScroll}
       style={{
         display: 'flex',

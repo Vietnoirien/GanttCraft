@@ -1,6 +1,6 @@
 import { render, screen, act } from '@testing-library/react';
 import { GanttChart } from './GanttChart';
-import { GanttProvider, useGanttContext } from './GanttProvider';
+import { GanttProvider, useGanttContext, GanttContextValue } from './GanttProvider';
 import { describe, it, expect } from 'vitest';
 import { GanttTask, GanttResource } from '../types';
 
@@ -58,7 +58,7 @@ describe('GanttChart prop forwarding (CR-1.B.2)', () => {
 
 describe('GanttChart Interactive Linking (CR-3.A.4)', () => {
   it('exposes addDependency and links tasks properly', () => {
-    let contextValue: any;
+    let contextValue!: GanttContextValue;
     
     const TestConsumer = () => {
       contextValue = useGanttContext();
@@ -102,7 +102,7 @@ describe('GanttChart Interactive Linking (CR-3.A.4)', () => {
   });
 
   it('exposes deleteTask and successfully removes a task', () => {
-    let contextValue: any;
+    let contextValue!: GanttContextValue;
     
     const TestConsumer = () => {
       contextValue = useGanttContext();
@@ -137,7 +137,7 @@ describe('GanttChart Interactive Linking (CR-3.A.4)', () => {
   });
 
   it('deleteTask automatically snaps successor tasks to earlier dates', () => {
-    let contextValue: any;
+    let contextValue!: GanttContextValue;
     
     const TestConsumer = () => {
       contextValue = useGanttContext();
@@ -184,7 +184,7 @@ describe('GanttChart Interactive Linking (CR-3.A.4)', () => {
 
 describe('Resource Leveling Integration (CR-6)', () => {
   it('autoLevelResources smoke test: resolves conflict in onTasksChange', () => {
-    let contextValue: any;
+    let contextValue!: GanttContextValue;
     
     const TestConsumer = () => {
       contextValue = useGanttContext();

@@ -15,6 +15,7 @@ export const darkTheme: GanttTheme = {
   '--gantt-task-fill-hover':  '#818cf8',
   '--gantt-milestone':        '#fbbf24',
   '--gantt-critical-path':    '#f87171',
+  '--gantt-critical':         '#f87171',
   '--gantt-progress':         '#4ade80',
   '--gantt-weekend':          'rgba(255,255,255,0.03)',
   '--gantt-today-line':       '#6366f1',

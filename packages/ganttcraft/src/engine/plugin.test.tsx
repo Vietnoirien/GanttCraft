@@ -30,12 +30,9 @@ describe('Plugin Architecture', () => {
       }
     };
 
-    let contextTasks: GanttTask[] = [];
-
     const ContextReader = () => {
       const { tasks } = useGanttContext();
-      contextTasks = tasks;
-      return null;
+      return <span>{tasks[0].name}</span>;
     };
 
     const { getByText } = render(
@@ -50,6 +47,6 @@ describe('Plugin Architecture', () => {
     });
 
     // The update should have been cancelled by the plugin
-    expect(contextTasks[0].name).toBe('Original');
+    expect(getByText('Original')).toBeTruthy();
   });
 });

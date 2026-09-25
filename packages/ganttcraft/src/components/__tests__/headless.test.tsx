@@ -7,7 +7,6 @@ describe('GanttChart Headless Mode', () => {
     const tasks = [
       { id: '1', name: 'Test Task', start: new Date(), end: new Date() }
     ];
-    // @ts-ignore - Mock theme for testing
     const theme = { '--gantt-bg': 'red' };
     
     // Normal render: theme is injected
@@ -17,7 +16,6 @@ describe('GanttChart Headless Mode', () => {
     unmount();
 
     // Headless render: theme is NOT injected
-    // @ts-ignore - Headless prop is not yet in type definition
     const { container: headlessContainer } = render(
       <GanttChart tasks={tasks} theme={theme} headless={true} />
     );

@@ -5,7 +5,7 @@ import { GanttTask } from '../../types';
 
 describe('Gantt Task Hierarchy & Collapse', () => {
   it('exposes toggleGroup and visibleTasks, and filters collapsed children', () => {
-    let contextValue: any;
+    let contextValue!: ReturnType<typeof useGanttContext>;
     
     const TestConsumer = () => {
       contextValue = useGanttContext();

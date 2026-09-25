@@ -15,6 +15,7 @@ export const defaultTheme: GanttTheme = {
   '--gantt-task-fill-hover':  '#4338ca',
   '--gantt-milestone':        '#f59e0b',
   '--gantt-critical-path':    '#ef4444',
+  '--gantt-critical':         '#ef4444',
   '--gantt-progress':         '#22c55e',
   '--gantt-weekend':          'rgba(0,0,0,0.03)',
   '--gantt-today-line':       '#4f46e5',

@@ -1,12 +1,12 @@
 {
   "name": "ganttcraft",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Professional-grade React Gantt Library",
   "author": "vietnoirien",
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vietnoirien/GanttCraft.git"
+    "url": "https://github.com/Vietnoirien/GanttCraft"
   },
   "publishConfig": {
     "access": "public"
@@ -28,9 +28,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "check:examples": "tsc --noEmit -p examples/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint . --ext ts,tsx"
+    "benchmark": "vitest run --config benchmark/vitest.config.ts",
+    "lint": "eslint ."
   },
   "peerDependencies": {
     "react": "^18.2.0 || ^19.0.0",

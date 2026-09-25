@@ -58,7 +58,13 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setFocusedIndex((prev) => (prev > 0 ? prev - 1 : items.length - 1));
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setFocusedIndex(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setFocusedIndex(items.length - 1);
+    } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       if (focusedIndex >= 0 && focusedIndex < items.length) {
         items[focusedIndex].onClick();
@@ -72,6 +78,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }
   return (
     <div
       role="menu"
+      aria-label="Task actions"
       ref={menuRef}
       tabIndex={-1}
       onKeyDown={handleKeyDown}

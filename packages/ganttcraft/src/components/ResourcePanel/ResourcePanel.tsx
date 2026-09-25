@@ -24,8 +24,6 @@ const ResourceRow = React.memo(({ resId, tasks, startMs, days, pixelsPerMs, yOff
   }, [tasks, resId, startMs, days]);
 
   const elements = [];
-  
-
 
   for (let i = 0; i < days; i++) {
     const util = utilizations[i];
@@ -47,7 +45,7 @@ const ResourceRow = React.memo(({ resId, tasks, startMs, days, pixelsPerMs, yOff
       );
     }
   }
-  
+
   return <g>{elements}</g>;
 }, (prev, next) => {
   if (prev.startMs !== next.startMs ||
@@ -76,15 +74,15 @@ const ResourceRow = React.memo(({ resId, tasks, startMs, days, pixelsPerMs, yOff
   return true;
 });
 
+ResourceRow.displayName = 'ResourceRow';
+
 export const ResourcePanel: React.FC = () => {
   const { tasks, startDate, endDate, pixelsPerMs, showResourcePanel } = useGanttContext();
 
-  // NOTE: All hooks must be called unconditionally before any early return (Rules of Hooks).
   const startMs = startDate.getTime();
   const endMs = endDate.getTime();
   const totalMs = endMs - startMs + MS_PER_DAY * 7;
 
-  // Find unique resources — must be called before the early return guard
   const resources = useMemo(() => {
     const res = new Set<string>();
     tasks.forEach(t => {
@@ -96,7 +94,7 @@ export const ResourcePanel: React.FC = () => {
   if (!showResourcePanel) return null;
 
   const width = Math.max(totalMs * pixelsPerMs, 800);
-  const height = Math.max(resources.length * 50, 150); // Dynamic height based on resources
+  const height = Math.max(resources.length * 50, 150);
 
   const days = Math.ceil(totalMs / MS_PER_DAY);
   
@@ -124,6 +122,9 @@ export const ResourcePanel: React.FC = () => {
           />
         ))}
       </svg>
-    </div>
+      </div>
+
   );
 };
+
+ResourcePanel.displayName = 'ResourcePanel';

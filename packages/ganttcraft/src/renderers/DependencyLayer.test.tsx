@@ -150,12 +150,9 @@ describe('DependencyLayer (CR-3.D.1)', () => {
       </svg>
     );
 
-    const lines = container.querySelectorAll('line');
-    expect(lines.length).toBe(1);
-    const line = lines[0];
-    expect(line.getAttribute('stroke-dasharray')).toBe('4 4');
-    expect(line.getAttribute('x2')).toBe('200');
-    expect(line.getAttribute('y2')).toBe('150');
+    const dashedPaths = container.querySelectorAll('path[stroke-dasharray="4 4"]');
+    expect(dashedPaths.length).toBe(1);
+    expect(dashedPaths[0].getAttribute('d')).toContain('L 200 150');
   });
   it('dependency path Y-coordinates are viewport-local (not shifted by virtualWindow.offsetY)', () => {
     // This tests the scroll bug: when scrolled down, DependencyLayer was computing path Y using
@@ -224,4 +221,3 @@ describe('DependencyLayer (CR-3.D.1)', () => {
     expect(cmdCount).toBe(6); // M + 5 L commands: close/below routing
   });
 });
-

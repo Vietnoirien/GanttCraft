@@ -17,18 +17,18 @@ yarn add ganttcraft
 
 ## Usage
 
-GanttCraft works out of the box with zero external CSS imports (it uses dynamic CSS variable injection). 
+GanttCraft works out of the box with zero external CSS imports (it uses dynamic CSS variable injection).
 
 ```tsx
 import { GanttChart } from 'ganttcraft';
 
 const tasks = [
-  { 
-    id: '1', 
-    title: 'Task 1', 
-    start: new Date('2026-05-01'), 
-    end: new Date('2026-05-05'), 
-    progress: 50 
+  {
+    id: '1',
+    name: 'Task 1',
+    start: new Date('2026-05-01'),
+    end: new Date('2026-05-05'),
+    progress: 50
   },
 ];
 
@@ -67,7 +67,7 @@ const GanttChart = dynamic(
 - **Task Hierarchy & Collapsible Groups:** Infinite nesting with visual indentation and collapse/expand toggles.
 - **Critical Path Method (CPM):** Auto-scheduling and float calculation.
 - **Resource Leveling:** Built-in conflict resolution algorithm.
-- **Dependency Tracking:** Support for Finish-to-Start (FS) and cascading updates.
+- **Dependency Tracking:** Support for FS, SS, FF, and SF links with cascading updates.
 - **History Management:** Built-in undo/redo capability.
 - **Extensible:** Plugin architecture for custom behaviors.
 

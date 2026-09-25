@@ -94,7 +94,7 @@ export interface GanttTask {
    */
   slug?: string;
   /** Index signature enabling custom data fields for use with custom column `accessor` functions. */
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface GanttColumn {

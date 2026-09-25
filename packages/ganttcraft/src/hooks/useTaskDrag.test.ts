@@ -3,7 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useTaskDrag } from './useTaskDrag';
 import { PIXELS_PER_DAY } from '../engine/layout';
 import { GanttTask } from '../types';
-import { AllDayCalendar, StandardCalendar } from '../engine/calendar';
+import { AllDayCalendar, StandardCalendar, createStandardCalendar } from '../engine/calendar';
 
 describe('useTaskDrag', () => {
   it('updates dates based on drag delta', () => {
@@ -14,13 +14,13 @@ describe('useTaskDrag', () => {
 
     // Mock mouse events
     act(() => {
-      result.current.handleMouseDown(task, 'move')({ clientX: 0, stopPropagation: () => {} } as any);
+      result.current.handleMouseDown(task, 'move')({ clientX: 0, stopPropagation: () => {} } as MouseEvent);
     });
+
     
     act(() => {
       // Simulate moving exactly 1 day to the right
-      const moveEvent = new Event('mousemove') as any;
-      moveEvent.clientX = PIXELS_PER_DAY;
+      const moveEvent = new MouseEvent('mousemove', { clientX: PIXELS_PER_DAY });
       window.dispatchEvent(moveEvent);
     });
 
@@ -47,11 +47,11 @@ describe('useTaskDrag with WorkingCalendar (CR-1.A.5 + CR-1.A.6)', () => {
     const { result } = renderHook(() => useTaskDrag({ onTaskUpdate, calendar: AllDayCalendar }));
 
     act(() => {
-      result.current.handleMouseDown(task, 'move')({ clientX: 0, stopPropagation: () => {} } as any);
+      result.current.handleMouseDown(task, 'move')({ clientX: 0, stopPropagation: () => {} } as MouseEvent);
     });
+
     act(() => {
-      const moveEvent = new Event('mousemove') as any;
-      moveEvent.clientX = PIXELS_PER_DAY; // exactly 1 day right
+      const moveEvent = new MouseEvent('mousemove', { clientX: PIXELS_PER_DAY });
       window.dispatchEvent(moveEvent);
     });
     act(() => { window.dispatchEvent(new Event('mouseup')); });
@@ -75,11 +75,11 @@ describe('useTaskDrag with WorkingCalendar (CR-1.A.5 + CR-1.A.6)', () => {
     const { result } = renderHook(() => useTaskDrag({ onTaskUpdate, calendar: StandardCalendar }));
 
     act(() => {
-      result.current.handleMouseDown(task, 'move')({ clientX: 0, stopPropagation: () => {} } as any);
+      result.current.handleMouseDown(task, 'move')({ clientX: 0, stopPropagation: () => {} } as MouseEvent);
     });
+
     act(() => {
-      const moveEvent = new Event('mousemove') as any;
-      moveEvent.clientX = 2 * PIXELS_PER_DAY; // 2 working days right
+      const moveEvent = new MouseEvent('mousemove', { clientX: 2 * PIXELS_PER_DAY });
       window.dispatchEvent(moveEvent);
     });
     act(() => { window.dispatchEvent(new Event('mouseup')); });
@@ -90,6 +90,45 @@ describe('useTaskDrag with WorkingCalendar (CR-1.A.5 + CR-1.A.6)', () => {
     expect(updatedTask.start).toEqual(new Date('2024-01-09T00:00:00Z'));
   });
 
+  it('move drag skips a named holiday and preserves working-day duration', () => {
+    const calendar = createStandardCalendar({ holidays: [{ date: '2024-01-08', name: 'Team holiday' }] });
+    const onTaskUpdate = vi.fn();
+    const task: GanttTask = {
+      id: '1', name: 'T1',
+      start: new Date('2024-01-05T00:00:00Z'),
+      end: new Date('2024-01-09T00:00:00Z'),
+    };
+    const { result } = renderHook(() => useTaskDrag({ onTaskUpdate, calendar }));
+
+    act(() => {
+      result.current.handleMouseDown(task, 'move')({ clientX: 0, stopPropagation: () => {} } as MouseEvent);
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: PIXELS_PER_DAY }));
+      window.dispatchEvent(new Event('mouseup'));
+    });
+
+    expect(onTaskUpdate).toHaveBeenCalledOnce();
+    expect(onTaskUpdate.mock.calls[0][0].start).toEqual(new Date('2024-01-09T00:00:00Z'));
+    expect(onTaskUpdate.mock.calls[0][0].end).toEqual(new Date('2024-01-10T00:00:00Z'));
+  });
+
+  it('keeps a one-hour task one hour long when dragged over a holiday', () => {
+    const calendar = createStandardCalendar({ holidays: [{ date: '2024-01-08', name: 'Team holiday' }] });
+    const onTaskUpdate = vi.fn();
+    const task: GanttTask = {
+      id: 'hour', name: 'One hour',
+      start: new Date('2024-01-05T14:00:00Z'),
+      end: new Date('2024-01-05T15:00:00Z'),
+    };
+    const { result } = renderHook(() => useTaskDrag({ onTaskUpdate, calendar }));
+    act(() => {
+      result.current.handleMouseDown(task, 'move')({ clientX: 0, stopPropagation: () => {} } as MouseEvent);
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: PIXELS_PER_DAY }));
+      window.dispatchEvent(new Event('mouseup'));
+    });
+    expect(onTaskUpdate.mock.calls[0][0].start).toEqual(new Date('2024-01-09T14:00:00Z'));
+    expect(onTaskUpdate.mock.calls[0][0].end).toEqual(new Date('2024-01-09T15:00:00Z'));
+  });
+
   it('resize-left — cannot produce start >= end', () => {
     const onTaskUpdate = vi.fn();
     const task: GanttTask = { id: '1', name: 'T1', start: new Date('2024-01-01T00:00:00Z'), end: new Date('2024-01-03T00:00:00Z') };
@@ -97,12 +136,11 @@ describe('useTaskDrag with WorkingCalendar (CR-1.A.5 + CR-1.A.6)', () => {
     const { result } = renderHook(() => useTaskDrag({ onTaskUpdate }));
 
     act(() => {
-      result.current.handleMouseDown(task, 'resize-left')({ clientX: 0, stopPropagation: () => {} } as any);
+      result.current.handleMouseDown(task, 'resize-left')({ clientX: 0, stopPropagation: () => {} } as MouseEvent);
     });
     act(() => {
       // Drag so far right that start would exceed end (+100 days)
-      const moveEvent = new Event('mousemove') as any;
-      moveEvent.clientX = 100 * PIXELS_PER_DAY;
+      const moveEvent = new MouseEvent('mousemove', { clientX: 100 * PIXELS_PER_DAY });
       window.dispatchEvent(moveEvent);
     });
     act(() => { window.dispatchEvent(new Event('mouseup')); });
@@ -122,12 +160,11 @@ describe('useTaskDrag with WorkingCalendar (CR-1.A.5 + CR-1.A.6)', () => {
     const { result } = renderHook(() => useTaskDrag({ onTaskUpdate }));
 
     act(() => {
-      result.current.handleMouseDown(task, 'resize-right')({ clientX: 0, stopPropagation: () => {} } as any);
+      result.current.handleMouseDown(task, 'resize-right')({ clientX: 0, stopPropagation: () => {} } as MouseEvent);
     });
     act(() => {
       // Drag far left so end would go before start (-100 days)
-      const moveEvent = new Event('mousemove') as any;
-      moveEvent.clientX = -100 * PIXELS_PER_DAY;
+      const moveEvent = new MouseEvent('mousemove', { clientX: -100 * PIXELS_PER_DAY });
       window.dispatchEvent(moveEvent);
     });
     act(() => { window.dispatchEvent(new Event('mouseup')); });
@@ -149,7 +186,7 @@ describe('useTaskDrag link mode (CR-3.A.1)', () => {
 
     act(() => {
       // Cast 'link' to any to avoid TS error before DragMode is updated
-      result.current.handleMouseDown(task, 'link' as any)({ clientX: 10, clientY: 20, stopPropagation: () => {} } as any);
+      result.current.handleMouseDown(task, 'link')({ clientX: 10, clientY: 20, stopPropagation: () => {} } as MouseEvent);
     });
 
     // Check linkState is active
@@ -157,9 +194,7 @@ describe('useTaskDrag link mode (CR-3.A.1)', () => {
 
     act(() => {
       // Mouse move
-      const moveEvent = new Event('mousemove') as any;
-      moveEvent.clientX = 50;
-      moveEvent.clientY = 60;
+      const moveEvent = new MouseEvent('mousemove', { clientX: 50, clientY: 60 });
       window.dispatchEvent(moveEvent);
     });
 
@@ -188,7 +223,7 @@ describe('useTaskDrag link mode (CR-3.A.1)', () => {
     const { result } = renderHook(() => useTaskDrag({ onLinkCreate }));
 
     act(() => {
-      result.current.handleMouseDown(task, 'link' as any)({ clientX: 10, clientY: 20, stopPropagation: () => {} } as any);
+      result.current.handleMouseDown(task, 'link')({ clientX: 10, clientY: 20, stopPropagation: () => {} } as MouseEvent);
     });
 
     act(() => {
@@ -205,4 +240,3 @@ describe('useTaskDrag link mode (CR-3.A.1)', () => {
     expect(result.current.linkState).toBeNull();
   });
 });
-

@@ -12,7 +12,7 @@ import { detectConflicts, ConflictMap } from '../engine/conflict';
 import { I18nOptions, defaultI18n } from '../engine/i18n';
 import { WorkingCalendar, AllDayCalendar } from '../engine/calendar';
 
-interface GanttContextValue {
+export interface GanttContextValue {
   tasks: GanttTask[];
   columns: GanttColumn[];
   resources?: GanttResource[];
@@ -25,8 +25,8 @@ interface GanttContextValue {
   virtualWindow: VirtualWindow;
   scrollLeft: number;
   scrollTop: number;
-  viewportWidth: number;
   viewportHeight: number;
+  viewportWidth: number;
   setScrollState: (top: number, left: number, height: number, width: number) => void;
   showCriticalPath: boolean;
   showResourcePanel: boolean;
@@ -36,18 +36,19 @@ interface GanttContextValue {
   plugins?: GanttPlugin[];
   conflicts: ConflictMap;
   i18n: I18nOptions;
-  /** Working calendar used for date arithmetic in scheduling and drag snapping. */
   calendar: WorkingCalendar;
   addDependency: (sourceId: string, targetId: string) => void;
   deleteTask: (taskId: string) => void;
   visibleTasks: GanttTask[];
   toggleGroup: (taskId: string) => void;
   collapsedGroupIds: Set<string>;
-  /** Called when the user clicks "Navigate" on a task with a slug. */
   onTaskNavigate?: (task: GanttTask) => void;
 }
 
 const GanttContext = createContext<GanttContextValue | undefined>(undefined);
+
+const sameTaskReferences = (left: GanttTask[], right: GanttTask[]): boolean =>
+  left === right || (left.length === right.length && left.every((task, index) => task === right[index]));
 
 export const useGanttContext = () => {
   const context = useContext(GanttContext);
@@ -71,18 +72,15 @@ export interface GanttProviderProps {
   showResourcePanel?: boolean;
   plugins?: GanttPlugin[];
   i18n?: Partial<I18nOptions>;
-  /** Working calendar used for scheduling and drag snapping. Defaults to AllDayCalendar (24/7). */
   calendar?: WorkingCalendar;
-  /** When true, enables global Ctrl+Z / Cmd+Z keyboard shortcuts for undo/redo. Default: true. */
   undoRedoEnabled?: boolean;
   headless?: boolean;
-  /** Called when the user clicks "Navigate" on a task with a slug. Receives the full GanttTask object. */
   onTaskNavigate?: (task: GanttTask) => void;
   children: React.ReactNode;
 }
 
 export const GanttProvider: React.FC<GanttProviderProps> = ({
-  tasks: externalTasks,
+  tasks: initialTasks,
   columns,
   resources,
   autoLevelResources,
@@ -101,8 +99,12 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
   onTaskNavigate,
   children,
 }) => {
-  const [internalTasks, setInternalTasks] = useState<GanttTask[]>(externalTasks);
-  const [conflicts, setConflicts] = useState<ConflictMap>({});
+  const [taskState, setTaskState] = useState(() => ({ source: initialTasks, current: initialTasks }));
+  const sourceTasks = sameTaskReferences(taskState.source, initialTasks) ||
+    sameTaskReferences(taskState.current, initialTasks) ? taskState.current : initialTasks;
+  const setTasks = useCallback((nextTasks: GanttTask[]) => {
+    setTaskState({ source: initialTasks, current: nextTasks });
+  }, [initialTasks]);
   const [scrollTop, setScrollTop] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(400);
@@ -111,27 +113,34 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
   const rootRef = useRef<HTMLDivElement>(null);
 
   const historyManager = useMemo(() => new HistoryManager(), []);
-  
   const mergedI18n = useMemo(() => ({ ...defaultI18n, ...i18n }), [i18n]);
 
-  // Sync with external tasks when they change
   useEffect(() => {
-    let newTasks = rollupGroups(externalTasks);
+    if (!sameTaskReferences(initialTasks, taskState.source) &&
+        !sameTaskReferences(initialTasks, taskState.current)) {
+      historyManager.clear();
+    }
+  }, [initialTasks, taskState, historyManager]);
+
+  const derivedTasks = useMemo(() => {
+    let newTasks = rollupGroups(sourceTasks);
     if (showCriticalPath || autoLevelResources) {
       newTasks = backwardPass(newTasks);
     }
     if (autoLevelResources && resources && resources.length > 0) {
       newTasks = levelResources(newTasks, resources, calendar);
-      newTasks = rollupGroups(newTasks); // Recalculate group bounds after children have been shifted
+      newTasks = rollupGroups(newTasks);
       if (showCriticalPath) {
         newTasks = backwardPass(newTasks);
       }
     }
-    setInternalTasks(newTasks);
-    setConflicts(detectConflicts(newTasks));
-  }, [externalTasks, showCriticalPath, autoLevelResources, resources, calendar]);
+    return newTasks;
+  }, [sourceTasks, showCriticalPath, autoLevelResources, resources, calendar]);
 
-  // Inject theme CSS custom properties onto the root element
+  const tasks = derivedTasks;
+
+  const conflicts = useMemo(() => detectConflicts(derivedTasks), [derivedTasks]);
+
   useEffect(() => {
     if (theme && rootRef.current && !headless) {
       injectTheme(rootRef.current, theme);
@@ -139,27 +148,22 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
   }, [theme, headless]);
 
   const { startDate, endDate } = useMemo(() => {
-    if (internalTasks.length === 0) {
-      return { startDate: new Date(), endDate: new Date() };
-    }
-    const starts = internalTasks.map((t) => t.start.getTime());
-    const ends = internalTasks.map((t) => t.end.getTime());
+    if (tasks.length === 0) return { startDate: new Date(), endDate: new Date() };
+    const starts = tasks.map((t) => t.start.getTime());
+    const ends = tasks.map((t) => t.end.getTime());
     return {
       startDate: new Date(Math.min(...starts)),
       endDate: new Date(Math.max(...ends)),
     };
-  }, [internalTasks]);
+  }, [tasks]);
 
   const pixelsPerMs = useMemo(() => viewModeToPixelsPerMs(viewMode), [viewMode]);
 
   const visibleTasks = useMemo(() => {
-    // A task is hidden if any of its ancestors are in collapsedGroupIds
     const hiddenMap = new Map<string, boolean>();
-    
-    // Memoize the hidden state of each node
     const isHidden = (taskId: string): boolean => {
       if (hiddenMap.has(taskId)) return hiddenMap.get(taskId)!;
-      const task = internalTasks.find(t => t.id === taskId);
+      const task = tasks.find(t => t.id === taskId);
       if (!task || !task.parentId) {
         hiddenMap.set(taskId, false);
         return false;
@@ -172,15 +176,10 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
       hiddenMap.set(taskId, hidden);
       return hidden;
     };
-
-    return internalTasks.filter(t => !isHidden(t.id));
-  }, [internalTasks, collapsedGroupIds]);
+    return tasks.filter(t => !isHidden(t.id));
+  }, [tasks, collapsedGroupIds]);
 
   const virtualWindow = useMemo(() => {
-    // Clamp scrollTop to the Gantt task area. When the ResourcePanel is open the
-    // container scrolls past the last task row. Without clamping, computeVirtualWindow
-    // produces an oversized offsetY, pushing SVG content (arrows, grid lines) into the
-    // ResourcePanel area — visible because the SVG container has overflow:visible.
     const ganttAreaHeight = visibleTasks.length * ROW_HEIGHT;
     const clampedScrollTop = Math.min(scrollTop, Math.max(0, ganttAreaHeight - viewportHeight));
     return computeVirtualWindow(clampedScrollTop, viewportHeight, ROW_HEIGHT, visibleTasks.length);
@@ -189,31 +188,24 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
   const toggleGroup = useCallback((taskId: string) => {
     setCollapsedGroupIds(prev => {
       const next = new Set(prev);
-      if (next.has(taskId)) {
-        next.delete(taskId);
-      } else {
-        next.add(taskId);
-      }
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
       return next;
     });
   }, []);
 
   const updateTask = useCallback(
     (updatedTask: GanttTask) => {
-      // Run beforeUpdateTask plugin hooks
       for (const plugin of plugins) {
         if (plugin.beforeUpdateTask) {
-          const result = plugin.beforeUpdateTask(updatedTask);
-          if (result === false) return; // Hook blocked mutation
+          if (plugin.beforeUpdateTask(updatedTask) === false) return;
         }
       }
 
-      // Save old state for undo
-      const oldTasks = [...internalTasks];
-      
-      const doUpdate = (targetTask: GanttTask) => {
-        let newTasks = internalTasks.map((t) => (t.id === targetTask.id ? targetTask : t));
+      const oldTasks = [...tasks];
 
+      const doUpdate = (targetTask: GanttTask) => {
+        let newTasks = tasks.map((t) => (t.id === targetTask.id ? targetTask : t));
         if (autoSchedule) {
           newTasks = cascadeSchedule(newTasks, targetTask, calendar);
         }
@@ -223,246 +215,215 @@ export const GanttProvider: React.FC<GanttProviderProps> = ({
         }
         if (autoLevelResources && resources && resources.length > 0) {
           newTasks = levelResources(newTasks, resources, calendar);
-          newTasks = rollupGroups(newTasks); // Recalculate group bounds after children have been shifted
+          newTasks = rollupGroups(newTasks);
           if (showCriticalPath || autoLevelResources) {
             newTasks = backwardPass(newTasks);
           }
         }
-
-        setInternalTasks(newTasks);
-        setConflicts(detectConflicts(newTasks));
+        setTasks(newTasks);
         onTasksChange?.(newTasks);
-
-        // Run afterUpdateTask plugin hooks
         for (const plugin of plugins) {
-          if (plugin.afterUpdateTask) {
-            plugin.afterUpdateTask(targetTask);
-          }
+          if (plugin.afterUpdateTask) plugin.afterUpdateTask(targetTask);
         }
       };
 
-      // Wrap in command
       historyManager.execute({
         execute: () => doUpdate(updatedTask),
         undo: () => {
-          setInternalTasks(oldTasks);
-          setConflicts(detectConflicts(oldTasks));
+          setTasks(oldTasks);
           onTasksChange?.(oldTasks);
         }
       });
-    },
-    [internalTasks, autoSchedule, onTasksChange, showCriticalPath, historyManager, plugins]
-  );
+    }, [tasks, autoSchedule, onTasksChange, showCriticalPath, autoLevelResources, resources, calendar, historyManager, plugins, setTasks]);
 
-  const undo = useCallback(() => historyManager.undo(), [historyManager]);
-  const redo = useCallback(() => historyManager.redo(), [historyManager]);
+    const undo = useCallback(() => historyManager.undo(), [historyManager]);
+    const redo = useCallback(() => historyManager.redo(), [historyManager]);
 
-  const addDependency = useCallback((sourceId: string, targetId: string) => {
-    if (sourceId === targetId) return;
-    const targetTask = internalTasks.find(t => t.id === targetId);
-    const sourceTask = internalTasks.find(t => t.id === sourceId);
-    if (!targetTask || !sourceTask) return;
-    
-    const existingDeps = targetTask.dependencies || [];
-    if (existingDeps.some(d => d.id === sourceId)) return;
+    const addDependency = useCallback((sourceId: string, targetId: string) => {
+      if (sourceId === targetId) return;
+      const targetTask = tasks.find(t => t.id === targetId);
+      const sourceTask = tasks.find(t => t.id === sourceId);
+      if (!targetTask || !sourceTask) return;
 
-    let updatedTargetTask: GanttTask = {
-      ...targetTask,
-      dependencies: [...existingDeps, { id: sourceId, type: 'FS' as const }]
-    };
+      const existingDeps = targetTask.dependencies || [];
+      if (existingDeps.some(d => d.id === sourceId)) return;
 
-    if (autoSchedule) {
-      // Pre-cascade from sourceTask to calculate the new start date for targetTask
-      let tempTasks = internalTasks.map(t => t.id === targetId ? updatedTargetTask : t);
-      tempTasks = cascadeSchedule(tempTasks, sourceTask, calendar);
-      updatedTargetTask = tempTasks.find(t => t.id === targetId)!;
-    }
-    
-    updateTask(updatedTargetTask);
-  }, [internalTasks, updateTask, autoSchedule, calendar]);
+      let updatedTargetTask: GanttTask = {
+        ...targetTask,
+        dependencies: [...existingDeps, { id: sourceId, type: 'FS' as const }]
+      };
 
-  const deleteTask = useCallback((taskId: string) => {
-    // Save old state for undo
-    const oldTasks = [...internalTasks];
-    
-    // Identify successors before deleting the task
-    const successors = internalTasks.filter(t => t.dependencies?.some(d => d.id === taskId));
-
-    // Remove the task
-    let newTasks = internalTasks.filter(t => t.id !== taskId);
-    
-    // Remove any dependencies referencing this task
-    newTasks = newTasks.map(t => {
-      if (t.dependencies && t.dependencies.some(d => d.id === taskId)) {
-        return {
-          ...t,
-          dependencies: t.dependencies.filter(d => d.id !== taskId)
-        };
+      if (autoSchedule) {
+        let tempTasks = tasks.map(t => t.id === targetId ? updatedTargetTask : t);
+        tempTasks = cascadeSchedule(tempTasks, sourceTask, calendar);
+        updatedTargetTask = tempTasks.find(t => t.id === targetId)!;
       }
-      return t;
-    });
+      updateTask(updatedTargetTask);
+    }, [tasks, updateTask, autoSchedule, calendar]);
 
-    if (autoSchedule) {
-      // Find tasks that depended on the deleted task to re-evaluate them
-      const projectStart = internalTasks.length > 0 
-        ? new Date(Math.min(...internalTasks.map(t => t.start.getTime()))) 
-        : new Date();
-
-      successors.forEach(succ => {
-        const succIdx = newTasks.findIndex(t => t.id === succ.id);
-        if (succIdx !== -1) {
-          const t = newTasks[succIdx];
-          const duration = t.end.getTime() - t.start.getTime();
-          let newStart: Date;
-          if (t.constraint === 'MSO' || t.constraint === 'SNET') {
-            newStart = new Date(t.constraintDate || projectStart);
-          } else {
-            newStart = new Date(projectStart);
-          }
-          newTasks[succIdx] = { ...t, start: newStart, end: new Date(newStart.getTime() + duration) };
+    const deleteTask = useCallback((taskId: string) => {
+      if (!tasks.some(t => t.id === taskId)) return;
+      const oldTasks = [...tasks];
+      const successors = tasks.filter(t => t.dependencies?.some(d => d.id === taskId));
+      let newTasks = tasks.filter(t => t.id !== taskId);
+      newTasks = newTasks.map(t => {
+        const dependencies = t.dependencies?.filter(d => d.id !== taskId);
+        if (dependencies?.length !== t.dependencies?.length || t.parentId === taskId) {
+          return { ...t, dependencies, parentId: t.parentId === taskId ? undefined : t.parentId };
         }
+        return t;
       });
 
-      // Run cascadeSchedule for each modified successor to push them to their correct new dates
-      successors.forEach(succ => {
-        const modifiedSucc = newTasks.find(t => t.id === succ.id);
-        if (modifiedSucc) {
-          if (modifiedSucc.dependencies && modifiedSucc.dependencies.length > 0) {
-            // It has other predecessors. Cascade from them to push this successor forward.
-            modifiedSucc.dependencies.forEach(dep => {
-              const remainingPred = newTasks.find(t => t.id === dep.id);
-              if (remainingPred) {
-                newTasks = cascadeSchedule(newTasks, remainingPred, calendar);
-              }
-            });
-          } else {
-            // It has no predecessors. Cascade from itself to push its successors forward.
-            newTasks = cascadeSchedule(newTasks, modifiedSucc, calendar);
+      if (autoSchedule) {
+        const projectStart = tasks.length > 0
+          ? new Date(Math.min(...tasks.map(t => t.start.getTime())))
+          : new Date();
+        successors.forEach(succ => {
+          const succIdx = newTasks.findIndex(t => t.id === succ.id);
+          if (succIdx !== -1) {
+            const t = newTasks[succIdx];
+            const duration = t.end.getTime() - t.start.getTime();
+            let newStart: Date;
+            if (t.constraint === 'MSO' || t.constraint === 'SNET') {
+              newStart = new Date(t.constraintDate || projectStart);
+            } else {
+              newStart = calendar.nextWorkingDay(projectStart);
+            }
+            if (t.constraint === 'SNET') newStart = calendar.nextWorkingDay(newStart);
+            newTasks[succIdx] = { ...t, start: newStart, end: new Date(newStart.getTime() + duration) };
           }
-        }
-      });
-    }
-
-    newTasks = rollupGroups(newTasks);
-    if (showCriticalPath || autoLevelResources) {
-      newTasks = backwardPass(newTasks);
-    }
-    if (autoLevelResources && resources && resources.length > 0) {
-      newTasks = levelResources(newTasks, resources, calendar);
-      newTasks = rollupGroups(newTasks); // Recalculate group bounds after children have been shifted
+        });
+        successors.forEach(succ => {
+          const modifiedSucc = newTasks.find(t => t.id === succ.id);
+          if (modifiedSucc) {
+            if (modifiedSucc.dependencies && modifiedSucc.dependencies.length > 0) {
+              modifiedSucc.dependencies.forEach(dep => {
+                const remainingPred = newTasks.find(t => t.id === dep.id);
+                if (remainingPred) {
+                  newTasks = cascadeSchedule(newTasks, remainingPred, calendar);
+                }
+              });
+            } else {
+              newTasks = cascadeSchedule(newTasks, modifiedSucc, calendar);
+            }
+          }
+        });
+      }
+      newTasks = rollupGroups(newTasks);
       if (showCriticalPath || autoLevelResources) {
         newTasks = backwardPass(newTasks);
       }
-    }
+      if (autoLevelResources && resources && resources.length > 0) {
+        newTasks = levelResources(newTasks, resources, calendar);
+        newTasks = rollupGroups(newTasks);
+        newTasks = backwardPass(newTasks);
+      }
+      historyManager.execute({
+        execute: () => {
+          setTasks(newTasks);
+          onTasksChange?.(newTasks);
+        },
+        undo: () => {
+          setTasks(oldTasks);
+          onTasksChange?.(oldTasks);
+        }
+      });
+    }, [tasks, autoSchedule, showCriticalPath, autoLevelResources, resources, calendar, onTasksChange, historyManager, setTasks]);
 
-    historyManager.execute({
-      execute: () => {
-        setInternalTasks(newTasks);
-        setConflicts(detectConflicts(newTasks));
-        onTasksChange?.(newTasks);
+    useEffect(() => {
+      if (!undoRedoEnabled) return;
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+          if (e.shiftKey) redo();
+          else undo();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [undo, redo, undoRedoEnabled]);
+
+    const setScrollState = useCallback(
+      (top: number, left: number, height: number, width: number) => {
+        setScrollTop(top);
+        setScrollLeft(left);
+        setViewportHeight(height);
+        setViewportWidth(width);
       },
-      undo: () => {
-        setInternalTasks(oldTasks);
-        setConflicts(detectConflicts(oldTasks));
-        onTasksChange?.(oldTasks);
-      }
-    });
-  }, [internalTasks, autoSchedule, showCriticalPath, onTasksChange, historyManager]);
+      []
+    );
 
-  useEffect(() => {
-    if (!undoRedoEnabled) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-        if (e.shiftKey) redo();
-        else undo();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, undoRedoEnabled]);
+    const value = useMemo(
+      () => ({
+        tasks,
+        columns,
+        resources,
+        startDate,
+        endDate,
+        updateTask,
+        viewMode,
+        pixelsPerMs,
+        renderTask,
+        virtualWindow,
+        scrollLeft,
+        scrollTop,
+        viewportHeight,
+        viewportWidth,
+        setScrollState,
+        showCriticalPath,
+        showResourcePanel,
+        historyManager,
+        undo,
+        redo,
+        plugins,
+        conflicts,
+        i18n: mergedI18n,
+        calendar,
+        addDependency,
+        deleteTask,
+        visibleTasks,
+        toggleGroup,
+        collapsedGroupIds,
+        onTaskNavigate,
+      }),
+      [
+        tasks,
+        columns,
+        resources,
+        startDate,
+        endDate,
+        updateTask,
+        viewMode,
+        pixelsPerMs,
+        renderTask,
+        virtualWindow,
+        scrollLeft,
+        scrollTop,
+        viewportHeight,
+        viewportWidth,
+        setScrollState,
+        showCriticalPath,
+        showResourcePanel,
+        historyManager,
+        undo,
+        redo,
+        plugins,
+        conflicts,
+        mergedI18n,
+        calendar,
+        addDependency,
+        deleteTask,
+        visibleTasks,
+        toggleGroup,
+        collapsedGroupIds,
+        onTaskNavigate,
+      ]
+    );
 
-  const setScrollState = useCallback(
-    (top: number, left: number, height: number, width: number) => {
-      setScrollTop(top);
-      setScrollLeft(left);
-      setViewportHeight(height);
-      setViewportWidth(width);
-    },
-    []
-  );
-
-  const value = useMemo(
-    () => ({
-      tasks: internalTasks,
-      columns,
-      resources,
-      startDate,
-      endDate,
-      updateTask,
-      viewMode,
-      pixelsPerMs,
-      renderTask,
-      virtualWindow,
-      scrollLeft,
-      scrollTop,
-      viewportHeight,
-      viewportWidth,
-      setScrollState,
-      showCriticalPath,
-      showResourcePanel,
-      historyManager,
-      undo,
-      redo,
-      plugins,
-      conflicts,
-      i18n: mergedI18n,
-      calendar,
-      addDependency,
-      deleteTask,
-      visibleTasks,
-      toggleGroup,
-      collapsedGroupIds,
-      onTaskNavigate,
-    }),
-    [
-      internalTasks,
-      columns,
-      resources,
-      startDate,
-      endDate,
-      updateTask,
-      viewMode,
-      pixelsPerMs,
-      renderTask,
-      virtualWindow,
-      scrollLeft,
-      scrollTop,
-      viewportHeight,
-      viewportWidth,
-      setScrollState,
-      showCriticalPath,
-      showResourcePanel,
-      historyManager,
-      undo,
-      redo,
-      plugins,
-      conflicts,
-      mergedI18n,
-      calendar,
-      addDependency,
-      deleteTask,
-      visibleTasks,
-      toggleGroup,
-      collapsedGroupIds,
-      onTaskNavigate,
-    ]
-  );
-
-  return (
-    <GanttContext.Provider value={value}>
-      <div ref={rootRef} style={{ display: 'contents' }}>
-        {children}
-      </div>
-    </GanttContext.Provider>
-  );
-};
+    return (
+      <GanttContext.Provider value={value}>
+        <div ref={rootRef} style={{ display: 'contents' }}>
+          {children}
+        </div>
+      </GanttContext.Provider>
+    );
+  };

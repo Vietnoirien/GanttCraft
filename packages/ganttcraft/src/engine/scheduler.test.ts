@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { cascadeSchedule, hasCycles, backwardPass, rollupGroups } from './scheduler';
 import { GanttTask } from '../types';
-import { AllDayCalendar, StandardCalendar } from './calendar';
+import { AllDayCalendar, StandardCalendar, createStandardCalendar } from './calendar';
 
 describe('scheduler cycle detection', () => {
   it('detects a simple cycle', () => {
@@ -43,6 +43,112 @@ describe('scheduler cascade', () => {
   });
 });
 
+describe('converging dependency cascades', () => {
+  const date = (day: number) => new Date(`2024-01-${String(day).padStart(2, '0')}T00:00:00Z`);
+
+  it.each([
+    ['earlier constraint listed first', ['early', 'late']],
+    ['later constraint listed first', ['late', 'early']],
+  ])('keeps the strongest predecessor constraint when the %s', (_label, order) => {
+    const branches: Record<string, GanttTask> = {
+      early: { id: 'early', name: 'Early', start: date(2), end: date(3), dependencies: [{ id: 'root', type: 'FS' }] },
+      late: { id: 'late', name: 'Late', start: date(2), end: date(3), dependencies: [{ id: 'root', type: 'FS', lag: 3 }] },
+    };
+    const tasks: GanttTask[] = [
+      { id: 'root', name: 'Root', start: date(1), end: date(2) },
+      ...order.map(id => branches[id]),
+      { id: 'join', name: 'Join', start: date(3), end: date(4), dependencies: order.map(id => ({ id, type: 'FS' as const })) },
+      { id: 'tail', name: 'Tail', start: date(4), end: date(5), dependencies: [{ id: 'join', type: 'FS' }] },
+    ];
+
+    const result = cascadeSchedule(tasks, { ...tasks[0], end: date(4) });
+    expect(result.find(task => task.id === 'early')?.end).toEqual(date(5));
+    expect(result.find(task => task.id === 'late')?.end).toEqual(date(8));
+    expect(result.find(task => task.id === 'join')?.start).toEqual(date(8));
+    expect(result.find(task => task.id === 'tail')?.start).toEqual(date(9));
+  });
+
+  it('waits for a longer branch before propagating past a join', () => {
+    const tasks: GanttTask[] = [
+      { id: 'root', name: 'Root', start: date(1), end: date(2) },
+      { id: 'short', name: 'Short', start: date(2), end: date(3), dependencies: [{ id: 'root', type: 'FS' }] },
+      { id: 'long1', name: 'Long 1', start: date(2), end: date(3), dependencies: [{ id: 'root', type: 'FS' }] },
+      { id: 'long2', name: 'Long 2', start: date(3), end: date(4), dependencies: [{ id: 'long1', type: 'FS' }] },
+      { id: 'join', name: 'Join', start: date(4), end: date(5), dependencies: [{ id: 'short', type: 'FS' }, { id: 'long2', type: 'FS' }] },
+      { id: 'tail', name: 'Tail', start: date(5), end: date(6), dependencies: [{ id: 'join', type: 'FS' }] },
+    ];
+
+    const result = cascadeSchedule(tasks, { ...tasks[0], end: date(5) });
+    expect(result.find(task => task.id === 'join')?.start).toEqual(date(7));
+    expect(result.find(task => task.id === 'tail')?.start).toEqual(date(8));
+  });
+
+  it('respects a stricter predecessor outside the changed branch', () => {
+    const tasks: GanttTask[] = [
+      { id: 'changed', name: 'Changed', start: date(1), end: date(2) },
+      { id: 'fixed', name: 'Fixed', start: date(1), end: date(10) },
+      { id: 'join', name: 'Join', start: date(3), end: date(4), dependencies: [
+        { id: 'fixed', type: 'FS' },
+        { id: 'changed', type: 'FS' },
+      ] },
+    ];
+
+    const result = cascadeSchedule(tasks, { ...tasks[0], end: date(5) });
+    expect(result.find(task => task.id === 'join')?.start).toEqual(date(10));
+  });
+
+  it.each([
+    ['FS', 1, 8],
+    ['SS', 2, 8],
+    ['FF', 3, 8],
+    ['SF', 4, 8],
+    ['FF', -1, 5],
+  ])('combines a %s link with lag %i against another predecessor', (type, lag, expectedDay) => {
+    const tasks: GanttTask[] = [
+      { id: 'root', name: 'Root', start: date(1), end: date(2) },
+      { id: 'first', name: 'First', start: date(1), end: date(2), dependencies: [{ id: 'root', type: 'FS' }] },
+      { id: 'second', name: 'Second', start: date(1), end: date(2), dependencies: [{ id: 'root', type: 'SS', lag: 5 }] },
+      { id: 'join', name: 'Join', start: date(1), end: date(3), dependencies: [
+        { id: 'first', type: 'FS' },
+        { id: 'second', type: type as import('../types').TaskDependency['type'], lag },
+      ] },
+    ];
+
+    const result = cascadeSchedule(tasks, { ...tasks[0], end: date(4) });
+    expect(result.find(task => task.id === 'join')?.start).toEqual(date(expectedDay));
+  });
+
+  it('combines FS, SS, FF, and SF constraints with positive and negative lag', () => {
+    const tasks: GanttTask[] = [
+      { id: 'root', name: 'Root', start: date(1), end: date(2) },
+      { id: 'fs', name: 'FS', start: date(1), end: date(2), dependencies: [{ id: 'root', type: 'FS', lag: 1 }] },
+      { id: 'ss', name: 'SS', start: date(1), end: date(2), dependencies: [{ id: 'root', type: 'SS', lag: 5 }] },
+      { id: 'ff', name: 'FF', start: date(1), end: date(2), dependencies: [{ id: 'root', type: 'FF', lag: 4 }] },
+      { id: 'sf', name: 'SF', start: date(1), end: date(2), dependencies: [{ id: 'root', type: 'SF', lag: 7 }] },
+      { id: 'join', name: 'Join', start: date(1), end: date(3), dependencies: [
+        { id: 'sf', type: 'SF', lag: -1 },
+        { id: 'ff', type: 'FF', lag: 2 },
+        { id: 'ss', type: 'SS', lag: 1 },
+        { id: 'fs', type: 'FS', lag: 1 },
+      ] },
+    ];
+
+    const result = cascadeSchedule(tasks, { ...tasks[0], end: date(4) });
+    const join = result.find(task => task.id === 'join')!;
+    // FF on "ff" requires join.end >= Jan 10, so its two-day duration starts Jan 8.
+    expect(join.start).toEqual(date(8));
+    expect(join.end).toEqual(date(10));
+  });
+
+  it('returns the original tasks when a cycle is present', () => {
+    const tasks: GanttTask[] = [
+      { id: 'a', name: 'A', start: date(1), end: date(2), dependencies: [{ id: 'b', type: 'FS' }] },
+      { id: 'b', name: 'B', start: date(2), end: date(3), dependencies: [{ id: 'a', type: 'FS' }] },
+    ];
+    expect(cascadeSchedule(tasks, { ...tasks[0], end: date(4) })).toBe(tasks);
+  });
+});
+
 describe('backwardPass and critical path', () => {
   it('calculates total float and identifies critical path', () => {
     const d1Start = new Date('2024-01-01T00:00:00Z');
@@ -79,6 +185,40 @@ describe('WBS rollup', () => {
 });
 
 describe('cascadeSchedule with WorkingCalendar (CR-1.A.3 + CR-1.A.4)', () => {
+  it('skips a named Monday holiday when a dependency crosses the weekend', () => {
+    const calendar = createStandardCalendar({ holidays: [{ date: '2024-01-08', name: 'Team holiday' }] });
+    const tasks: GanttTask[] = [
+      { id: 'a', name: 'A', start: new Date('2024-01-04T00:00:00Z'), end: new Date('2024-01-05T00:00:00Z') },
+      { id: 'b', name: 'B', start: new Date('2024-01-04T00:00:00Z'), end: new Date('2024-01-05T00:00:00Z'), dependencies: [{ id: 'a', type: 'FS', lag: 1 }] },
+    ];
+
+    const result = cascadeSchedule(tasks, { ...tasks[0] }, calendar);
+    expect(result[1].start).toEqual(new Date('2024-01-09T00:00:00Z'));
+    expect(result[1].end).toEqual(new Date('2024-01-10T00:00:00Z'));
+  });
+
+  it('snaps an FS successor after a predecessor ends on a holiday', () => {
+    const calendar = createStandardCalendar({ holidays: [{ date: '2024-01-08', name: 'Team holiday' }] });
+    const tasks: GanttTask[] = [
+      { id: 'a', name: 'A', start: new Date('2024-01-05T00:00:00Z'), end: new Date('2024-01-08T00:00:00Z') },
+      { id: 'b', name: 'B', start: new Date('2024-01-04T00:00:00Z'), end: new Date('2024-01-05T00:00:00Z'), dependencies: [{ id: 'a', type: 'FS' }] },
+    ];
+
+    const result = cascadeSchedule(tasks, { ...tasks[0] }, calendar);
+    expect(result[1].start).toEqual(new Date('2024-01-09T00:00:00Z'));
+  });
+
+  it('keeps a one-hour successor one hour long', () => {
+    const calendar = createStandardCalendar({ holidays: [{ date: '2024-01-08', name: 'Team holiday' }] });
+    const tasks: GanttTask[] = [
+      { id: 'a', name: 'A', start: new Date('2024-01-05T14:00:00Z'), end: new Date('2024-01-05T15:00:00Z') },
+      { id: 'b', name: 'B', start: new Date('2024-01-05T14:00:00Z'), end: new Date('2024-01-05T15:00:00Z'), dependencies: [{ id: 'a', type: 'FS' }] },
+    ];
+    const result = cascadeSchedule(tasks, { ...tasks[0] }, calendar);
+    expect(result[1].start).toEqual(new Date('2024-01-05T15:00:00Z'));
+    expect(result[1].end).toEqual(new Date('2024-01-05T16:00:00Z'));
+  });
+
   it('AllDayCalendar (no args) — baseline FS cascade is unchanged', () => {
     // 2024-01-01 Mon → 2024-01-02 Tue (1 day task T1)
     // T2: 2024-01-02 → 2024-01-03 (1 day), depends on T1 FS

@@ -78,4 +78,19 @@ describe('ContextMenu', () => {
     });
     expect(onClick2).toHaveBeenCalled();
   });
+
+  it('uses Home and Space to activate the first menu action', () => {
+    const onClick = vi.fn();
+    render(<ContextMenu x={0} y={0} items={[
+      { id: 'first', label: 'First action', onClick },
+      { id: 'second', label: 'Second action', onClick: vi.fn() },
+    ]} onClose={() => {}} />);
+    const menu = screen.getByRole('menu', { name: 'Task actions' });
+    fireEvent.keyDown(menu, { key: 'End' });
+    expect(document.activeElement?.textContent).toBe('Second action');
+    fireEvent.keyDown(menu, { key: 'Home' });
+    expect(document.activeElement?.textContent).toBe('First action');
+    fireEvent.keyDown(menu, { key: ' ' });
+    expect(onClick).toHaveBeenCalledOnce();
+  });
 });

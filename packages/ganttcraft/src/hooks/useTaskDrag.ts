@@ -41,8 +41,8 @@ export function useTaskDrag({ onTaskUpdate, onLinkCreate, calendar = AllDayCalen
     
     let svgElement: SVGSVGElement | null = null;
     if (e.currentTarget) {
-      const target = e.currentTarget as any;
-      svgElement = target.ownerSVGElement || (target.tagName === 'svg' ? target : null);
+      const target = e.currentTarget as SVGElement;
+      svgElement = target.ownerSVGElement || (target.tagName === 'svg' ? target as SVGSVGElement : null);
     }
 
     if (mode === 'link') {
@@ -150,10 +150,9 @@ export function useTaskDrag({ onTaskUpdate, onLinkCreate, calendar = AllDayCalen
       const updated = { ...initialTask };
         
       if (mode === 'move') {
-        // Use calendar-aware working-day addition for moves
-        const duration = initialTask.end.getTime() - initialTask.start.getTime();
-        updated.start = calendar.addWorkingDays(initialTask.start, daysDelta);
-        updated.end = new Date(updated.start.getTime() + duration);
+        const duration = calendar.workingDaysBetween(initialTask.start, initialTask.end);
+        updated.start = calendar.nextWorkingDay(calendar.addWorkingDays(initialTask.start, daysDelta));
+        updated.end = calendar.addWorkingDays(updated.start, duration);
       } else if (mode === 'resize-left') {
         const newStartMs = initialTask.start.getTime() + msDelta;
         // Prevent negative duration
@@ -211,4 +210,3 @@ export function useTaskDrag({ onTaskUpdate, onLinkCreate, calendar = AllDayCalen
     setLinkTargetId,
   };
 }
-
